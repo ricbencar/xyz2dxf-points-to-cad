@@ -34,23 +34,15 @@ $$
 The computational workflow transforms this cloud into a hierarchy of engineering products:
 
 $$
-\begin{array}{c}
-\mathcal{P} \\
-\downarrow\scriptstyle{\text{deterministic minimum-distance filtering}} \\
-\mathcal{P}_{d_{\min}} \\
-\downarrow\scriptstyle{\text{robust local residual outlier rejection}} \\
-\mathcal{P}_{\mathrm{clean}} \\
-\downarrow\scriptstyle{\text{regular-grid interpolation}} \\
-\mathcal{G} \\
-\downarrow\scriptstyle{\text{diagnostic and CAD export}} \\
-\left\{
-\mathcal{P}_{\mathrm{clean}},\,
-\mathcal{G},\,
-\mathcal{G}_{\mathrm{conf}},\,
-\mathrm{DXF},\,
-\mathrm{report}
-\right\}
-\end{array}
+\mathcal{P}
+\xrightarrow{\text{deterministic minimum-distance filtering}}
+\mathcal{P}_{d_{\min}}
+\xrightarrow{\text{robust local residual outlier rejection}}
+\mathcal{P}_{\mathrm{clean}}
+\xrightarrow{\text{regular-grid interpolation}}
+\mathcal{G}
+\xrightarrow{\text{diagnostic and CAD export}}
+\{\mathcal{P}_{\mathrm{clean}},\, \mathcal{G},\, \mathcal{G}_{\mathrm{conf}},\, \mathrm{DXF},\, \mathrm{report}\}.
 $$
 
 The numerical objectives are:
@@ -325,7 +317,7 @@ $$
 The residual center is taken as the median
 
 $$
-\widetilde{r} = \operatorname{median}(r_k).
+\widetilde{r} = \mathrm{median}(r_k).
 $$
 
 Then the absolute deviations are
@@ -337,11 +329,11 @@ $$
 and the MAD-based robust scale is
 
 $$
-\operatorname{MAD} = \operatorname{median}(d_k),
+\mathrm{MAD} = \mathrm{median}(d_k),
 $$
 
 $$
-\sigma_{\mathrm{rob}} = \max(1.4826\,\operatorname{MAD},\,10^{-8}).
+\sigma_{\mathrm{rob}} = \max(1.4826\,\mathrm{MAD},\,10^{-8}).
 $$
 
 ### 5.6 Rejection criterion
@@ -508,7 +500,7 @@ $$
 The trace and spectral split are
 
 $$
-\operatorname{tr}(\mathbf{S}) = S_{xx}+S_{yy},
+\mathrm{tr}(\mathbf{S}) = S_{xx}+S_{yy},
 $$
 
 $$
@@ -516,15 +508,15 @@ $$
 $$
 
 $$
-\lambda_1 = \max\!\left(\frac{\operatorname{tr}(\mathbf{S})+\Delta}{2},0\right),
+\lambda_1 = \max\!\left(\frac{\mathrm{tr}(\mathbf{S})+\Delta}{2},0\right),
 \qquad
-\lambda_2 = \max\!\left(\frac{\operatorname{tr}(\mathbf{S})-\Delta}{2},0\right).
+\lambda_2 = \max\!\left(\frac{\mathrm{tr}(\mathbf{S})-\Delta}{2},0\right).
 $$
 
 The principal-frame angle is
 
 $$
-\theta = \frac{1}{2}\arctan2(2S_{xy}, S_{xx}-S_{yy}).
+\theta = \frac{1}{2}\,\mathrm{atan2}(2S_{xy},\, S_{xx}-S_{yy}).
 $$
 
 Therefore,
@@ -668,9 +660,9 @@ $$
 The MLS solve is repeated for three robust IRLS-like passes. Let $r_k$ be the residual at a fitted point. The code computes the median residual center and MAD scale,
 
 $$
-\widetilde{r} = \operatorname{median}(r_k),
+\widetilde{r} = \mathrm{median}(r_k),
 \qquad
-\sigma = \max(1.4826\,\operatorname{MAD},\,10^{-8}).
+\sigma = \max(1.4826\,\mathrm{MAD},\,10^{-8}).
 $$
 
 The normalized robust coordinate is
@@ -712,7 +704,7 @@ $$
 \max\!\left(
 10^{-12},
 \ \text{ridgeFactor}\times 10^{-11}
-\frac{\operatorname{tr}(\mathbf{A}^{T}\mathbf{W}\mathbf{A})}{n_b}
+\frac{\mathrm{tr}(\mathbf{A}^{T}\mathbf{W}\mathbf{A})}{n_b}
 \right).
 $$
 
@@ -721,12 +713,12 @@ $$
 For a set of errors $e_k$, the code reports
 
 $$
-\operatorname{RMSE} =
+\mathrm{RMSE} =
 \sqrt{\frac{1}{n}\sum_{k=1}^{n} e_k^2},
 $$
 
 $$
-\operatorname{MAE} =
+\mathrm{MAE} =
 \frac{1}{n}\sum_{k=1}^{n}|e_k|,
 $$
 
@@ -735,7 +727,7 @@ and the 95th percentile absolute error $P95$.
 The combined selection score is
 
 $$
-S = \operatorname{RMSE} + 0.35\,P95 + 0.15\,\operatorname{MAE}.
+S = \mathrm{RMSE} + 0.35\,P95 + 0.15\,\mathrm{MAE}.
 $$
 
 ### 10.7 Predictive local validation
@@ -852,7 +844,7 @@ $$
 It then applies the minmod operator
 
 $$
-\operatorname{minmod}(a,b) =
+\mathrm{minmod}(a,b) =
 \begin{cases}
 0, & ab \le 0,\\
 a, & |a|<|b| \text{ and } ab>0,\\
@@ -1125,7 +1117,7 @@ $$
 A subset of local points is reserved for validation whenever the neighborhood is sufficiently large. The selected $\lambda$ is the one minimizing the validation score
 
 $$
-S = \operatorname{RMSE} + 0.35\,P95 + 0.15\,\operatorname{MAE}.
+S = \mathrm{RMSE} + 0.35\,P95 + 0.15\,\mathrm{MAE}.
 $$
 
 ### 13.8 Blended multi-anchor evaluation
@@ -1222,7 +1214,7 @@ The raw method confidence is not used directly. It is calibrated against observe
 
 $$
 C =
-\operatorname{clip}_{[0.02,1]}
+\mathrm{clip}_{[0.02,1]}
 \left(
 C_{\mathrm{raw}}
 \cdot
