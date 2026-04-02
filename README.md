@@ -4,9 +4,8 @@
 
 The **XYZ to DXF Converter GUI** is a Win32 desktop application for the ingestion, conditioning, interpolation, diagnostic assessment, and CAD-oriented export of large irregular XYZ point clouds. The code is not a simple file-format converter. Its active numerical role is the construction of a **cleaned, regularized, diagnostically traceable surface representation** from scattered planar samples
 
-$$
-\mathcal{P} = \{(x_i,y_i,z_i)\}_{i=1}^{N},
-$$
+$\mathcal{P} = \{(x_i,y_i,z_i)\}_{i=1}^{N},$
+
 
 where $z$ is typically elevation, depth, or another scalar field defined over $(x,y)$.
 
@@ -109,9 +108,8 @@ There is **no active `Max TPS Points` GUI parameter** in the current code. The T
 
 If $d_{\min} > 0$, the program performs deterministic horizontal thinning. If
 
-$$
-d_{\min} \le 0,
-$$
+$d_{\min} \le 0,$
+
 
 it falls back to exact duplicate removal only.
 
@@ -123,17 +121,15 @@ it falls back to exact duplicate removal only.
 
 `PDMODE` is written into the DXF header variable `$PDMODE`. The DXF writer also emits the fixed point-size constant
 
-$$
-\texttt{PDSIZE}=0.5.
-$$
+$\texttt{PDSIZE}=0.5.$
+
 
 ### 3.4 Grid spacing
 
 The regular interpolation spacing is the Cartesian grid increment
 
-$$
-h > 0.
-$$
+$h > 0.$
+
 
 This parameter governs the grid extent, node count, Hermite cell size, derivative limiting scales, and boundary-penalty length scale in the bicubic and clamped MLS branches.
 
@@ -162,15 +158,13 @@ The code deliberately avoids a first-come-first-kept thinning rule. Instead, it 
 
 If
 
-$$
-d_{\min} \le 0,
-$$
+$d_{\min} \le 0,$
+
 
 the code removes only exact duplicates under exact `double` comparison:
 
-$$
-(x_i,y_i,z_i)=(x_j,y_j,z_j).
-$$
+$(x_i,y_i,z_i)=(x_j,y_j,z_j).$
+
 
 ### 4.3 Cell assignment
 
@@ -194,9 +188,8 @@ $$
 
 Each candidate receives the deterministic score
 
-$$
-s=(x-x_c)^2+(y-y_c)^2.
-$$
+$s=(x-x_c)^2+(y-y_c)^2.$
+
 
 The candidate list is stably sorted by cell index, then by $s$, then by coordinate tie-breaks.
 
@@ -204,9 +197,8 @@ The candidate list is stably sorted by cell index, then by $s$, then by coordina
 
 Let $p_i=(x_i,y_i,z_i)$ be a candidate point. The code inspects accepted points in the surrounding $3\times 3$ neighborhood of sparse cells. The candidate is rejected if any previously accepted point $p_j$ satisfies
 
-$$
-(x_i-x_j)^2+(y_i-y_j)^2 < d_{\min}^2.
-$$
+$(x_i-x_j)^2+(y_i-y_j)^2 < d_{\min}^2.$
+
 
 Otherwise it is accepted.
 
@@ -231,55 +223,47 @@ In the active code, robust outlier removal is applied **before** deterministic `
 
 The runtime pipeline computes the outlier search distance as
 
-$$
-r_n = \max\left(5d_{\min},\ 3\bar{\Delta}_{xy},\ 0.01\right),
-$$
+$r_n = \max\left(5d_{\min},\ 3\bar{\Delta}_{xy},\ 0.01\right),$
+
 
 where $\bar{\Delta}_{xy}$ is the average planar spacing defined later.
 
 The robust threshold factor used by the code is
 
-$$
-\alpha = 3.5.
-$$
+$\alpha = 3.5.$
+
 
 ### 5.3 Local weighted plane fit
 
 For a tested point $(x_0,y_0,z_0)$, the program collects neighboring points within radius $r_n$ and fits the local plane
 
-$$
-z(x,y) \approx a + b_x(x-x_0) + b_y(y-y_0).
-$$
+$z(x,y) \approx a + b_x(x-x_0) + b_y(y-y_0).$
+
 
 The basis is
 
-$$
-\phi(x,y)=\begin{bmatrix}1 & x-x_0 & y-y_0\end{bmatrix}^{T}.
-$$
+$\phi(x,y)=\begin{bmatrix}1 & x-x_0 & y-y_0\end{bmatrix}^{T}.$
+
 
 The local scale is
 
-$$
-h = \max\left(\sqrt{\frac1n\sum_{k=1}^{n}\big[(x_k-x_0)^2+(y_k-y_0)^2\big]},\ 10^{-6}\right).
-$$
+$h = \max\left(\sqrt{\frac1n\sum_{k=1}^{n}\big[(x_k-x_0)^2+(y_k-y_0)^2\big]},\ 10^{-6}\right).$
+
 
 The geometric weights are
 
-$$
-w_k = \frac{1}{1 + \dfrac{(x_k-x_0)^2+(y_k-y_0)^2}{h^2}}.
-$$
+$w_k = \frac{1}{1 + \dfrac{(x_k-x_0)^2+(y_k-y_0)^2}{h^2}}.$
+
 
 The weighted normal equations are
 
-$$
-(\mathbf{A}^{T}\mathbf{W}\mathbf{A})\,\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z},
-$$
+$(\mathbf{A}^{T}\mathbf{W}\mathbf{A})\,\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z},$
+
 
 with
 
-$$
-\mathbf{c}=\begin{bmatrix}a & b_x & b_y\end{bmatrix}^{T}.
-$$
+$\mathbf{c}=\begin{bmatrix}a & b_x & b_y\end{bmatrix}^{T}.$
+
 
 The code adds a tiny diagonal stabilization:
 
@@ -297,41 +281,35 @@ If fewer than 6 usable neighbors remain after range filtering, the point is cons
 
 After fitting the plane, the neighborhood residuals are
 
-$$
-r_k = z_k - \big(a + b_x(x_k-x_0) + b_y(y_k-y_0)\big).
-$$
+$r_k = z_k - \big(a + b_x(x_k-x_0) + b_y(y_k-y_0)\big).$
+
 
 The residual center is the median
 
-$$
-\widetilde{r}=\operatorname{median}(r_k).
-$$
+$\widetilde{r}=\operatorname{median}(r_k).$
+
 
 The median absolute deviation is
 
-$$
-\operatorname{MAD} = \operatorname{median}\big(|r_k-\widetilde{r}|\big).
-$$
+$\operatorname{MAD} = \operatorname{median}\big(|r_k-\widetilde{r}|\big).$
+
 
 The robust scale is
 
-$$
-\sigma_{\mathrm{rob}} = \max\big(1.4826\,\operatorname{MAD},\ 10^{-8}\big).
-$$
+$\sigma_{\mathrm{rob}} = \max\big(1.4826\,\operatorname{MAD},\ 10^{-8}\big).$
+
 
 ### 5.6 Pointwise decision rule
 
 The code evaluates the tested point using
 
-$$
-r_{\mathrm{self}} = \left|z_0-a-\widetilde{r}\right|.
-$$
+$r_{\mathrm{self}} = \left|z_0-a-\widetilde{r}\right|.$
+
 
 The point is kept when
 
-$$
-r_{\mathrm{self}} \le \alpha\,\sigma_{\mathrm{rob}}.
-$$
+$r_{\mathrm{self}} \le \alpha\,\sigma_{\mathrm{rob}}.$
+
 
 Otherwise it is rejected.
 
@@ -343,15 +321,13 @@ After conditioning, the code builds a regular Cartesian grid over an expanded bo
 
 Let the filtered-data bounds be
 
-$$
-x_{\min}^{d},\ x_{\max}^{d},\ y_{\min}^{d},\ y_{\max}^{d}.
-$$
+$x_{\min}^{d},\ x_{\max}^{d},\ y_{\min}^{d},\ y_{\max}^{d}.$
+
 
 The margin is
 
-$$
-m = 1.5h.
-$$
+$m = 1.5h.$
+
 
 Hence the grid extent is
 
@@ -391,9 +367,8 @@ $$
 
 The planned node count is
 
-$$
-N_g = n_x n_y,
-$$
+$N_g = n_x n_y,$
+
 
 with explicit overflow checks before multiplication.
 
@@ -405,15 +380,13 @@ with explicit overflow checks before multiplication.
 
 The code repeatedly uses the characteristic spacing
 
-$$
-\bar{\Delta}_{xy} = \sqrt{\frac{A}{N}},
-$$
+$\bar{\Delta}_{xy} = \sqrt{\frac{A}{N}},$
+
 
 where
 
-$$
-A = \max\big((x_{\max}-x_{\min})(y_{\max}-y_{\min}),\ 10^{-12}\big).
-$$
+$A = \max\big((x_{\max}-x_{\min})(y_{\max}-y_{\min}),\ 10^{-12}\big).$
+
 
 This is used to size spatial-hash cells, boundary raster cells, and local support scales.
 
@@ -421,15 +394,13 @@ This is used to size spatial-hash cells, boundary raster cells, and local suppor
 
 Whenever a preferred local interpolant fails, the code falls back to inverse-distance weighting over up to 16 nearest points:
 
-$$
-z(x,y) = \frac{\sum_{k=1}^{m} w_k z_k}{\sum_{k=1}^{m} w_k},
-$$
+$z(x,y) = \frac{\sum_{k=1}^{m} w_k z_k}{\sum_{k=1}^{m} w_k},$
+
 
 with
 
-$$
-w_k = \frac{1}{10^{-12} + (x-x_k)^2 + (y-y_k)^2}.
-$$
+$w_k = \frac{1}{10^{-12} + (x-x_k)^2 + (y-y_k)^2}.$
+
 
 This fallback is intentionally conservative and is explicitly recorded in the diagnostics.
 
@@ -443,55 +414,46 @@ The MLS and TPS branches both build a local anisotropic principal frame.
 
 For query point $(x_0,y_0)$ and neighborhood $\mathcal{N}$,
 
-$$
-\bar{r}^2 = \frac1n\sum_{k=1}^{n}\big[(x_k-x_0)^2+(y_k-y_0)^2\big],
-$$
+$\bar{r}^2 = \frac1n\sum_{k=1}^{n}\big[(x_k-x_0)^2+(y_k-y_0)^2\big],$
 
-$$
-h_0 = \max\big(\sqrt{\max(\bar{r}^2,10^{-12})},\ \max(h,10^{-6})\big).
-$$
+
+$h_0 = \max\big(\sqrt{\max(\bar{r}^2,10^{-12})},\ \max(h,10^{-6})\big).$
+
 
 ### 8.2 Preliminary weights
 
 The covariance weights are
 
-$$
-w_k^{\mathrm{frame}} = \frac{1}{1 + \dfrac{(x_k-x_0)^2+(y_k-y_0)^2}{h_0^2}}.
-$$
+$w_k^{\mathrm{frame}} = \frac{1}{1 + \dfrac{(x_k-x_0)^2+(y_k-y_0)^2}{h_0^2}}.$
+
 
 ### 8.3 Weighted covariance matrix
 
 The weighted second moments are
 
-$$
-S_{xx} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(x_k-x_0)^2,
-$$
+$S_{xx} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(x_k-x_0)^2,$
 
-$$
-S_{yy} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(y_k-y_0)^2,
-$$
 
-$$
-S_{xy} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(x_k-x_0)(y_k-y_0),
-$$
+$S_{yy} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(y_k-y_0)^2,$
+
+
+$S_{xy} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(x_k-x_0)(y_k-y_0),$
+
 
 with
 
-$$
-W = \sum_k w_k^{\mathrm{frame}}.
-$$
+$W = \sum_k w_k^{\mathrm{frame}}.$
+
 
 ### 8.4 Principal directions
 
 The code computes
 
-$$
-\operatorname{tr}(\mathbf{S}) = S_{xx}+S_{yy},
-$$
+$\operatorname{tr}(\mathbf{S}) = S_{xx}+S_{yy},$
 
-$$
-\Delta = \sqrt{(S_{xx}-S_{yy})^2 + 4S_{xy}^2},
-$$
+
+$\Delta = \sqrt{(S_{xx}-S_{yy})^2 + 4S_{xy}^2},$
+
 
 $$
 \lambda_1 = \max\left(\frac{\operatorname{tr}(\mathbf{S})+\Delta}{2},0\right),
@@ -501,9 +463,8 @@ $$
 
 The frame angle is
 
-$$
-\theta = \frac12\operatorname{atan2}(2S_{xy}, S_{xx}-S_{yy}).
-$$
+$\theta = \frac12\operatorname{atan2}(2S_{xy}, S_{xx}-S_{yy}).$
+
 
 The orthonormal axes are
 
@@ -517,13 +478,11 @@ $$
 
 The anisotropic scaling lengths are
 
-$$
-s_1 = \max\big(\sqrt{\lambda_1},\ 0.75\max(h,10^{-6})\big),
-$$
+$s_1 = \max\big(\sqrt{\lambda_1},\ 0.75\max(h,10^{-6})\big),$
 
-$$
-s_2 = \max\big(\sqrt{\lambda_2},\ 0.35\max(h,10^{-6})\big).
-$$
+
+$s_2 = \max\big(\sqrt{\lambda_2},\ 0.35\max(h,10^{-6})\big).$
+
 
 ### 8.6 Local coordinates
 
@@ -537,9 +496,8 @@ $$
 
 The normalized local radius is
 
-$$
-\rho = \sqrt{u^2+v^2}.
-$$
+$\rho = \sqrt{u^2+v^2}.$
+
 
 ---
 
@@ -547,17 +505,15 @@ $$
 
 For a candidate neighborhood, the code computes the transformed radii $\rho_k$ and sorts them. The support radius is then chosen as
 
-$$
-r_s = \max\big(r_{\min},\ 1.5,\ \rho_{80},\ 0.75\rho_{90}\big),
-$$
+$r_s = \max\big(r_{\min},\ 1.5,\ \rho_{80},\ 0.75\rho_{90}\big),$
+
 
 where $\rho_{80}$ and $\rho_{90}$ are the 80th and 90th percentile radii.
 
 The final adaptive neighborhood is selected by retaining all candidates with
 
-$$
-\rho_k \le r_s,
-$$
+$\rho_k \le r_s,$
+
 
 while enforcing minimum and maximum cardinality constraints. If too few points satisfy the support-radius test, the nearest-ranked points are retained until the minimum count is met.
 
@@ -616,9 +572,8 @@ $$
 
 The fitted polynomial value is
 
-$$
-f(u,v) = \sum_{k=0}^{n_b-1} c_k\phi_k(u,v).
-$$
+$f(u,v) = \sum_{k=0}^{n_b-1} c_k\phi_k(u,v).$
+
 
 ### 10.3 Compact support kernel
 
@@ -634,29 +589,25 @@ $$
 
 with
 
-$$
-q = \frac{\rho}{r_s}.
-$$
+$q = \frac{\rho}{r_s}.$
+
 
 The final geometric factor used in the MLS fit is
 
-$$
-w_{\mathrm{geom}} = \max\left(\frac{w_c(\rho/r_s)}{1+\rho^2},\ 10^{-14}\right).
-$$
+$w_{\mathrm{geom}} = \max\left(\frac{w_c(\rho/r_s)}{1+\rho^2},\ 10^{-14}\right).$
+
 
 ### 10.4 Robust reweighting
 
 The fit uses three iteratively reweighted passes. After each pass, residuals are formed, their median-centered MAD scale is computed,
 
-$$
-\sigma = \max(1.4826\,\operatorname{MAD}, 10^{-8}),
-$$
+$\sigma = \max(1.4826\,\operatorname{MAD}, 10^{-8}),$
+
 
 and a Tukey-type reweighting is applied with
 
-$$
-t = \frac{|z_i-f_i|}{4.685\sigma}.
-$$
+$t = \frac{|z_i-f_i|}{4.685\sigma}.$
+
 
 The robust weight update is
 
@@ -672,49 +623,41 @@ $$
 
 The local normal equations are assembled as
 
-$$
-\mathbf{A}^{T}\mathbf{W}\mathbf{A}\,\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z},
-$$
+$\mathbf{A}^{T}\mathbf{W}\mathbf{A}\,\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z},$
+
 
 with combined weight
 
-$$
-w_i = \max\big(w_{\mathrm{geom},i}\,w_i^{\mathrm{rob}},\ 10^{-14}\big).
-$$
+$w_i = \max\big(w_{\mathrm{geom},i}\,w_i^{\mathrm{rob}},\ 10^{-14}\big).$
+
 
 The diagonal ridge is scaled from the matrix trace:
 
-$$
-\lambda_{\mathrm{ridge}} = \max\left(10^{-12},\ \texttt{ridgeFactor}\times 10^{-11}\frac{\operatorname{tr}(\mathbf{A}^{T}\mathbf{W}\mathbf{A})}{n_b}\right).
-$$
+$\lambda_{\mathrm{ridge}} = \max\left(10^{-12},\ \texttt{ridgeFactor}\times 10^{-11}\frac{\operatorname{tr}(\mathbf{A}^{T}\mathbf{W}\mathbf{A})}{n_b}\right).$
+
 
 Hence the solved system is
 
-$$
-\big(\mathbf{A}^{T}\mathbf{W}\mathbf{A}+\lambda_{\mathrm{ridge}}\mathbf{I}\big)\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z}.
-$$
+$\big(\mathbf{A}^{T}\mathbf{W}\mathbf{A}+\lambda_{\mathrm{ridge}}\mathbf{I}\big)\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z}.$
+
 
 ### 10.6 Validation metrics
 
 For MLS and TPS, the code uses the metrics
 
-$$
-\operatorname{RMSE} = \sqrt{\frac1n\sum_{i=1}^{n} e_i^2},
-$$
+$\operatorname{RMSE} = \sqrt{\frac1n\sum_{i=1}^{n} e_i^2},$
 
-$$
-\operatorname{MAE} = \frac1n\sum_{i=1}^{n}|e_i|,
-$$
 
-$$
-P95 = \text{95th percentile of } |e_i|.
-$$
+$\operatorname{MAE} = \frac1n\sum_{i=1}^{n}|e_i|,$
+
+
+$P95 = \text{95th percentile of } |e_i|.$
+
 
 The scalar tuning score is
 
-$$
-S = \operatorname{RMSE} + 0.35\,P95 + 0.15\,\operatorname{MAE}.
-$$
+$S = \operatorname{RMSE} + 0.35\,P95 + 0.15\,\operatorname{MAE}.$
+
 
 ### 10.7 Predictive local validation
 
@@ -760,13 +703,11 @@ $$
 
 The code then computes
 
-$$
-f_x = f_u\frac{\partial u}{\partial x} + f_v\frac{\partial v}{\partial x},
-$$
+$f_x = f_u\frac{\partial u}{\partial x} + f_v\frac{\partial v}{\partial x},$
 
-$$
-f_y = f_u\frac{\partial u}{\partial y} + f_v\frac{\partial v}{\partial y},
-$$
+
+$f_y = f_u\frac{\partial u}{\partial y} + f_v\frac{\partial v}{\partial y},$
+
 
 $$
 \begin{aligned}
@@ -787,9 +728,8 @@ $$
 
 Before Hermite reconstruction, the nodal derivatives are bounded using the local $z$ range
 
-$$
-\Delta z = \max(z_{\max}^{\mathrm{loc}}-z_{\min}^{\mathrm{loc}}, 10^{-8}).
-$$
+$\Delta z = \max(z_{\max}^{\mathrm{loc}}-z_{\min}^{\mathrm{loc}}, 10^{-8}).$
+
 
 The nodewise slope and twist caps are
 
@@ -807,9 +747,8 @@ f_x \leftarrow \operatorname{clip}(f_x,-L_s,L_s),
 f_y \leftarrow \operatorname{clip}(f_y,-L_s,L_s),
 $$
 
-$$
-f_{xy} \leftarrow \operatorname{clip}(f_{xy},-L_t,L_t).
-$$
+$f_{xy} \leftarrow \operatorname{clip}(f_{xy},-L_t,L_t).$
+
 
 ### 11.4 Cellwise minmod derivative limiting
 
@@ -849,9 +788,8 @@ $$
 
 with cap
 
-$$
-L_{\times} = 2|c_{\times}| + 10^{-8}.
-$$
+$L_{\times} = 2|c_{\times}| + 10^{-8}.$
+
 
 ### 11.5 Hermite basis functions
 
@@ -899,35 +837,29 @@ z_{\min}=\min(z_{00},z_{10},z_{01},z_{11}),
 z_{\max}=\max(z_{00},z_{10},z_{01},z_{11}),
 $$
 
-$$
-p = 0.05\max(z_{\max}-z_{\min},10^{-8}).
-$$
+$p = 0.05\max(z_{\max}-z_{\min},10^{-8}).$
+
 
 The final bicubic value is limited by
 
-$$
-f \leftarrow \max(z_{\min}-p,\ \min(z_{\max}+p, f)).
-$$
+$f \leftarrow \max(z_{\min}-p,\ \min(z_{\max}+p, f)).$
+
 
 ### 11.8 Parameter tuning
 
 The bicubic/MLS tuning search uses the exact active option sets
 
-$$
-\texttt{neighborhoodTarget}\in\{48,64,96,128\},
-$$
+$\texttt{neighborhoodTarget}\in\{48,64,96,128\},$
 
-$$
-\texttt{supportMultiplier}\in\{1.75,2.25,2.75\},
-$$
 
-$$
-\texttt{ridgeFactor}\in\{1,10,50\},
-$$
+$\texttt{supportMultiplier}\in\{1.75,2.25,2.75\},$
 
-$$
-\texttt{basisOrder}\in\{2,3\}.
-$$
+
+$\texttt{ridgeFactor}\in\{1,10,50\},$
+
+
+$\texttt{basisOrder}\in\{2,3\}.$
+
 
 Selection is based on the smallest tuning score $S$ from deterministic global holdout validation.
 
@@ -947,9 +879,8 @@ $$
 
 If $z_{\mathrm{MLS}}$ is the raw local MLS prediction, the final value is
 
-$$
-z^{*} = \max\left(z_{\min}^{\mathcal{N}},\ \min\left(z_{\max}^{\mathcal{N}}, z_{\mathrm{MLS}}\right)\right).
-$$
+$z^{*} = \max\left(z_{\min}^{\mathcal{N}},\ \min\left(z_{\max}^{\mathcal{N}}, z_{\mathrm{MLS}}\right)\right).$
+
 
 This branch is therefore not a monotone finite-volume method. It is a **bounded local regression** method.
 
@@ -965,21 +896,18 @@ The active code uses **all filtered points** as TPS control points. There is no 
 
 Let $N_c$ be the number of TPS control points. The target TPS neighborhood size is
 
-$$
-N_{\mathrm{TPS}} = \min\left(\max\left(64,\ 3\sqrt{N_c}\right),\ \min(160,N_c)\right).
-$$
+$N_{\mathrm{TPS}} = \min\left(\max\left(64,\ 3\sqrt{N_c}\right),\ \min(160,N_c)\right).$
+
 
 The TPS spatial hash uses cell size
 
-$$
-c_{\mathrm{TPS}} = \max(3\bar{\Delta}_{xy},10^{-6}).
-$$
+$c_{\mathrm{TPS}} = \max(3\bar{\Delta}_{xy},10^{-6}).$
+
 
 The model-level initial regularization is
 
-$$
-\lambda_{0}=10^{-9}.
-$$
+$\lambda_{0}=10^{-9}.$
+
 
 ### 13.3 Holdout learning of $\lambda$
 
@@ -1001,41 +929,35 @@ $$
 
 For a local patch with $m$ retained control points in local coordinates $(u_i,v_i)$, the code solves the standard TPS augmented system in the equivalent split form
 
-$$
-(\mathbf{K}+\lambda\mathbf{I})\mathbf{w}+\mathbf{P}\mathbf{a}=\mathbf{z},
-$$
+$(\mathbf{K}+\lambda\mathbf{I})\mathbf{w}+\mathbf{P}\mathbf{a}=\mathbf{z},$
 
-$$
-\mathbf{P}^{T}\mathbf{w}=\mathbf{0},
-$$
+
+$\mathbf{P}^{T}\mathbf{w}=\mathbf{0},$
+
 
 with
 
-$$
-K_{ij}=\Phi\big((u_i-u_j)^2+(v_i-v_j)^2\big).
-$$
+$K_{ij}=\Phi\big((u_i-u_j)^2+(v_i-v_j)^2\big).$
+
 
 The polynomial design matrix $\mathbf{P}$ has rows
 
-$$
-\mathbf{P}_i = [1\ \ u_i\ \ v_i].
-$$
+$\mathbf{P}_i = [1\ \ u_i\ \ v_i].$
+
 
 ### 13.6 Patch evaluation
 
 At query coordinates $(u_q,v_q)$, the patch value is
 
-$$
-z_q = a_0 + a_1u_q + a_2v_q + \sum_{i=1}^{m} w_i\,\Phi\big((u_i-u_q)^2+(v_i-v_q)^2\big).
-$$
+$z_q = a_0 + a_1u_q + a_2v_q + \sum_{i=1}^{m} w_i\,\Phi\big((u_i-u_q)^2+(v_i-v_q)^2\big).$
+
 
 ### 13.7 Local cross-validation for $\lambda$
 
 For each local patch, the code tests the exact set
 
-$$
-\lambda \in \{10^{-12},10^{-11},10^{-10},10^{-9},10^{-8},10^{-6}\}.
-$$
+$\lambda \in \{10^{-12},10^{-11},10^{-10},10^{-9},10^{-8},10^{-6}\}.$
+
 
 Each candidate is scored by predictive residual metrics on a local validation split if available, otherwise by fit residual metrics. The smallest score $S$ wins.
 
@@ -1043,21 +965,18 @@ Each candidate is scored by predictive residual metrics on a local validation sp
 
 The TPS evaluation blends up to four nearby anchor patches. If patch $a$ has support radius $r_{s,a}$, anchor distance $d_a$, and residual estimate $r_a$, the blend weight is
 
-$$
-w_a = \max\left(\frac{w_c\big(d_a/(1.001\,r_{s,a}^{xy})\big)}{\sqrt{10^{-8}+r_a}},\ 10^{-12}\right),
-$$
+$w_a = \max\left(\frac{w_c\big(d_a/(1.001\,r_{s,a}^{xy})\big)}{\sqrt{10^{-8}+r_a}},\ 10^{-12}\right),$
+
 
 where
 
-$$
-r_{s,a}^{xy}=\max\big(1,\ r_{s,a}\max(c_{\mathrm{TPS}},10^{-6})\big).
-$$
+$r_{s,a}^{xy}=\max\big(1,\ r_{s,a}\max(c_{\mathrm{TPS}},10^{-6})\big).$
+
 
 The blended TPS value is
 
-$$
-z = \frac{\sum_a w_a z_a}{\sum_a w_a}.
-$$
+$z = \frac{\sum_a w_a z_a}{\sum_a w_a}.$
+
 
 If no valid blend is available, the code falls back first to the best single patch and finally to inverse-distance weighting.
 
@@ -1081,9 +1000,8 @@ $$
 
 Inside `buildConvexHull2D(...)`, if no explicit request is supplied, the cell size defaults to
 
-$$
-c_s = \max(2.5\bar{\Delta}_{xy},10^{-6}).
-$$
+$c_s = \max(2.5\bar{\Delta}_{xy},10^{-6}).$
+
 
 ### 14.2 Occupancy support and loop extraction
 
@@ -1091,9 +1009,8 @@ The filtered points are rasterized into occupied cells. The code then applies mo
 
 When the boundary is built from the runtime pipeline, the cell size is iteratively relaxed by
 
-$$
-c_s \leftarrow 1.35\,c_s
-$$
+$c_s \leftarrow 1.35\,c_s$
+
 
 until all filtered points lie inside the resulting boundary or the iteration budget is exhausted.
 
@@ -1101,15 +1018,13 @@ until all filtered points lie inside the resulting boundary or the iteration bud
 
 For a query point $(x,y)$ outside the active boundary, the code computes the shortest distance to the polygon loop,
 
-$$
-d_{\mathrm{out}} = \operatorname{dist}\big((x,y),\partial\Omega\big).
-$$
+$d_{\mathrm{out}} = \operatorname{dist}\big((x,y),\partial\Omega\big).$
+
 
 The boundary penalty used by bicubic, clamped MLS, and TPS diagnostics is
 
-$$
-\beta = \frac{1}{1 + d_{\mathrm{out}}/L},
-$$
+$\beta = \frac{1}{1 + d_{\mathrm{out}}/L},$
+
 
 where the active length scale is:
 
@@ -1132,27 +1047,23 @@ The interpretation is branch dependent, but the common calibration routine is im
 
 If the raw confidence is invalid or non-positive, the code resets it to
 
-$$
-C_{\mathrm{raw}} = 0.05.
-$$
+$C_{\mathrm{raw}} = 0.05.$
+
 
 If no observed validation metrics are available, the returned confidence is simply clamped:
 
-$$
-C = \operatorname{clip}(C_{\mathrm{raw}}, 0.05, 1).
-$$
+$C = \operatorname{clip}(C_{\mathrm{raw}}, 0.05, 1).$
+
 
 Otherwise the observed error scale is
 
-$$
-s_{\mathrm{obs}} = \max\big(\operatorname{RMSE},\ 0.5P95,\ 10^{-8}\big),
-$$
+$s_{\mathrm{obs}} = \max\big(\operatorname{RMSE},\ 0.5P95,\ 10^{-8}\big),$
+
 
 and the calibrated confidence is
 
-$$
-C = \operatorname{clip}\left(C_{\mathrm{raw}}\frac{1}{1+r_{\mathrm{loc}}/s_{\mathrm{obs}}},\ 0.02, 1\right).
-$$
+$C = \operatorname{clip}\left(C_{\mathrm{raw}}\frac{1}{1+r_{\mathrm{loc}}/s_{\mathrm{obs}}},\ 0.02, 1\right).$
+
 
 The raw branch-specific formulas are:
 
@@ -1169,29 +1080,25 @@ The residual field written to `confidence.xyz` is the branch-local fit or valida
 
 All local algebra is solved by an internal dense direct solver with partial pivoting. At elimination step $k$, the solver selects the pivot row with largest
 
-$$
-|a_{rk}|.
-$$
+$|a_{rk}|.$
+
 
 If the pivot magnitude is not finite or does not satisfy
 
-$$
-|a_{kk}| > 10^{-18},
-$$
+$|a_{kk}| > 10^{-18},$
+
 
 the solve fails safely.
 
 The elimination factor is
 
-$$
-\gamma_{rk} = \frac{a_{rk}}{a_{kk}},
-$$
+$\gamma_{rk} = \frac{a_{rk}}{a_{kk}},$
+
 
 and the back-substitution stage computes
 
-$$
-x_i = \frac{1}{a_{ii}}\left(b_i - \sum_{c=i+1}^{n-1} a_{ic}x_c\right).
-$$
+$x_i = \frac{1}{a_{ii}}\left(b_i - \sum_{c=i+1}^{n-1} a_{ic}x_c\right).$
+
 
 This internal solver is used by the weighted plane fit, MLS normal equations, and TPS patch systems.
 
@@ -1226,15 +1133,13 @@ $$
 
 The view size is
 
-$$
-V = 1.1\max(x_{\max}-x_{\min},\ y_{\max}-y_{\min}).
-$$
+$V = 1.1\max(x_{\max}-x_{\min},\ y_{\max}-y_{\min}).$
+
 
 If $V$ is invalid or non-positive, the fallback is
 
-$$
-V=1.
-$$
+$V=1.$
+
 
 ### 17.4 DXF layers
 
@@ -1270,9 +1175,8 @@ The method labels written by the active code are:
 
 For the bicubic branch, the report also records the selected tuning tuple
 
-$$
-(\texttt{neighbors},\ \texttt{supportMultiplier},\ \texttt{ridgeFactor},\ \texttt{basisOrder}).
-$$
+$(\texttt{neighbors},\ \texttt{supportMultiplier},\ \texttt{ridgeFactor},\ \texttt{basisOrder}).$
+
 
 ---
 
@@ -1287,9 +1191,8 @@ The Win32 interface is organized into four group boxes:
 
 The window is fixed-size and non-resizable. The active logical creation size is approximately
 
-$$
-950 \times 670
-$$
+$950 \times 670$
+
 
 window units before `AdjustWindowRect(...)` expands it to the full outer window size.
 
