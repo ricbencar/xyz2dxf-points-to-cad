@@ -2,155 +2,153 @@
 
 ## Abstract
 
-The **XYZ to DXF Converter GUI** is a Windows-based scientific and engineering application for the ingestion, filtering, regularization, interpolation, and CAD export of large irregular three-dimensional point clouds in XYZ format. The program is not a mere file converter. Its numerical purpose is the construction of a **stable, quality-controlled, interpolated surface representation** suitable for engineering inspection, grid export, and DXF-based visualization.
+The **XYZ to DXF Converter GUI** is a Win32 desktop application for the ingestion, conditioning, interpolation, diagnostic assessment, and CAD-oriented export of large irregular XYZ point clouds. The code is not a simple file-format converter. Its active numerical role is the construction of a **cleaned, regularized, diagnostically traceable surface representation** from scattered planar samples
 
-The active code implements three interpolation modes:
+$$
+\mathcal{P} = \{(x_i,y_i,z_i)\}_{i=1}^{N},
+$$
 
-1. **Bicubic Hermite + robust anisotropic MLS**, intended as the primary smooth high-accuracy method;
-2. **Local Thin Plate Spline (TPS)** with adaptive neighborhoods, local regularization, and blended patches, intended for highly scattered and irregular point distributions;
-3. **Clamped local MLS (bounded)**, a conservative local alternative that constrains predictions to the neighborhood data envelope in order to reduce overshoot.
+where $z$ is typically elevation, depth, or another scalar field defined over $(x,y)$.
 
-The software also includes:
+The current C++ implementation exposes three interpolation branches:
 
-- deterministic minimum-distance thinning, independent of file order;
-- robust local outlier rejection using local plane residuals and MAD-based scale estimation;
-- predictive validation for parameter selection and method quality reporting;
-- support-mask / hull awareness to reduce overconfidence near extrapolative regions;
-- streamed writing of filtered XYZ, interpolated grid XYZ, confidence diagnostics, and DXF;
-- GUI-based parameter entry with Windows-native file selection and runtime status reporting.
+1. **Bicubic Hermite + robust anisotropic MLS**;
+2. **Local TPS** with adaptive local patches and local cross-validated regularization;
+3. **Clamped local MLS (bounded)**.
 
-This document is written as a **technical scientific manual**. It is intended to explain the mathematics, software architecture, numerical workflow, data structures, diagnostics, outputs, and implementation philosophy of the active code base.
+The active code also implements:
+
+- robust local residual outlier rejection on the **original** XYZ cloud;
+- deterministic minimum-distance thinning applied **after** optional outlier rejection;
+- raster-occupancy outer-boundary construction and clipping;
+- predictive holdout validation for MLS and TPS branches;
+- streamed writing of filtered XYZ, interpolated grid XYZ, confidence diagnostics, report, and DXF;
+- a fixed-size Win32 GUI with checkboxes for outlier removal and outer-boundary usage.
+
+**Keywords:** scattered-data interpolation, moving least squares, bicubic Hermite interpolation, thin plate spline, robust regression, point-cloud conditioning, DXF export, engineering surface reconstruction.
 
 ---
 
 ## 1. Scope and technical objective
 
-Let the raw input point cloud be
+The active processing chain transforms the raw point set into a hierarchy of working products:
 
 $$
-\mathcal{P} = \{(x_i, y_i, z_i)\}_{i=1}^{N}.
+\mathcal{P}
+\rightarrow
+\mathcal{P}_{\mathrm{outlier\ filtered}}
+\rightarrow
+\mathcal{P}_{d_{\min}}
+\rightarrow
+\mathcal{G}
+\rightarrow
+\{\texttt{filtered.xyz},\ \texttt{grid.xyz},\ \texttt{confidence.xyz},\ \texttt{dxf},\ \texttt{rpt.txt}\}.
 $$
 
-The computational workflow transforms this cloud into a hierarchy of engineering products:
+The stage meanings are:
 
-$$
-\mathcal{P} \rightarrow \mathcal{P}_{d_{\min}}
-$$
+- $\mathcal{P} \rightarrow \mathcal{P}_{\mathrm{outlier\ filtered}}$: optional robust local residual screening on the original XYZ cloud;
+- $\mathcal{P}_{\mathrm{outlier\ filtered}} \rightarrow \mathcal{P}_{d_{\min}}$: deterministic horizontal thinning or exact duplicate suppression;
+- $\mathcal{P}_{d_{\min}} \rightarrow \mathcal{G}$: regular-grid interpolation by the selected method;
+- $\mathcal{G} \rightarrow$ exports: streamed writing of the surface, diagnostics, and CAD representation.
 
-$$
-\mathcal{P}_{d_{\min}} \rightarrow \mathcal{P}_{\mathrm{clean}}
-$$
+The technical objectives of the code are:
 
-$$
-\mathcal{P}_{\mathrm{clean}} \rightarrow \mathcal{G}
-$$
-
-with the following stage meanings:
-
-- $\mathcal{P} \rightarrow \mathcal{P}_{d_{\min}}$: deterministic minimum-distance filtering;
-- $\mathcal{P}_{d_{\min}} \rightarrow \mathcal{P}_{\mathrm{clean}}$: robust local residual outlier rejection;
-- $\mathcal{P}_{\mathrm{clean}} \rightarrow \mathcal{G}$: regular-grid interpolation;
-- final exports: `filtered.xyz`, `grid.xyz`, `confidence.xyz`, `DXF`, and `report`.
-
-The numerical objectives are:
-
-- to preserve geometric fidelity while removing redundant sampling;
-- to suppress local vertical anomalies without over-smoothing the cloud;
-- to interpolate on a regular Cartesian grid suitable for downstream engineering use;
-- to quantify local interpolation confidence and failure/fallback conditions;
-- to export the processed surface to standard XYZ and DXF products.
-
-The code is therefore a coupled **preprocessing + interpolation + diagnostics + export** system.
+- to reduce redundant sampling without introducing file-order dependence;
+- to reject locally inconsistent vertical anomalies without using a crude global $z$ cutoff;
+- to interpolate a regular Cartesian grid suitable for engineering inspection and downstream numerical use;
+- to attach practical confidence and fallback diagnostics to each predicted node;
+- to produce traceable exported products rather than an opaque black-box result.
 
 ---
 
 ## 2. High-level software workflow
 
-The active program logic is organized in the following stages:
+The runtime pipeline implemented in `processXYZtoDXF(...)` is:
 
-1. **Input reading and deterministic filtering**
-2. **Robust local residual outlier rejection**
-3. **Interpolation context construction**
-4. **Predictive tuning / validation**
-5. **Streamed writing of `filtered.xyz`**
-6. **Streamed writing of `grid.xyz`**
-7. **Streamed writing of `confidence.xyz`**
-8. **Streamed writing of `dxf`**
-9. **Textual execution report and GUI status messages**
+1. **Read original XYZ input**;
+2. **Optional robust outlier removal on the original cloud**;
+3. **Deterministic `minDist` thinning**;
+4. **Optional outer-boundary construction**;
+5. **Write `filtered.xyz`**;
+6. **Build interpolation context and stream `grid.xyz` + `confidence.xyz`**;
+7. **Stream `dxf` and write the textual report**.
 
-The code is implemented in a single C++ source file and uses:
-
-- Win32 GUI primitives (`windows.h`, `commdlg.h`);
-- OpenMP for selected parallel loops;
-- explicit dense linear algebra without external matrix libraries;
-- streamed file I/O for large grid and DXF products.
-
-A representative build command is:
-
-```bash
-g++ -O3 -fopenmp -march=native -std=c++17 -Wall -Wextra -pedantic \
-    -Wconversion -Wsign-conversion -static -static-libgcc -static-libstdc++ \
-    -mwindows -o xyz2dxf_gui.exe \
-    xyz2dxf_gui.cpp -lkernel32 -lopengl32 -luuid -lcomdlg32 -lm
-```
+For a successful run, the program therefore behaves as a coupled **conditioning + interpolation + diagnostics + export** system rather than a single interpolation call.
 
 ---
 
 ## 3. Graphical interface and exposed parameters
 
-The GUI exposes the following primary numerical inputs:
+The GUI exposes the following active controls:
 
+- `Input XYZ file`
 - `Min Dist`
 - `Precision`
 - `PDMODE`
 - `Grid Spacing`
-- `Max TPS Points`
+- `Use robust outlier removal`
+- `Use outer boundary`
+- interpolation method radio buttons
 
-It also exposes the interpolation method selector:
+The default GUI values created by the active code are:
 
-- **Bicubic Hermite + robust MLS**
-- **Local TPS**
-- **Clamped local MLS (bounded)**
+$$
+d_{\min}=5,
+\qquad
+\texttt{Precision}=2,
+\qquad
+\texttt{PDMODE}=3,
+\qquad
+h=20.
+$$
 
-The default values in the code are:
-
-- $d_{\min} = 5$
-- `Precision` $= 2$
-- `PDMODE` $= 3$
-- $h = 20$
-- `Max TPS Points` $= 0$
-
-The meaning of these parameters is:
+There is **no active `Max TPS Points` GUI parameter** in the current code. The TPS branch uses the full filtered point cloud as its control set.
 
 ### 3.1 Minimum distance
 
-The quantity $d_{\min}$ is the minimum admissible horizontal separation between retained points after thinning. If $d_{\min} \le 0$, the code switches to exact duplicate removal only.
+If $d_{\min} > 0$, the program performs deterministic horizontal thinning. If
+
+$$
+d_{\min} \le 0,
+$$
+
+it falls back to exact duplicate removal only.
 
 ### 3.2 Precision
 
-The parameter `Precision` controls only the number of decimal places written to output files. It does **not** change internal floating-point precision, which remains `double`.
+`Precision` controls only text formatting in exported XYZ and DXF files. Internal arithmetic is performed in `double` precision throughout.
 
 ### 3.3 PDMODE
 
-`PDMODE` is written into the DXF header and controls the CAD point-display style:
+`PDMODE` is written into the DXF header variable `$PDMODE`. The DXF writer also emits the fixed point-size constant
 
-`PDMODE` is a user-specified integer.
-
-The DXF point size is written as the constant:
-
-`PDSIZE = 0.5`.
+$$
+\texttt{PDSIZE}=0.5.
+$$
 
 ### 3.4 Grid spacing
 
-The interpolation grid spacing is
+The regular interpolation spacing is the Cartesian grid increment
 
-$h$ is the grid spacing.
+$$
+h > 0.
+$$
 
-This is the Cartesian node spacing of the regular output grid.
+This parameter governs the grid extent, node count, Hermite cell size, derivative limiting scales, and boundary-penalty length scale in the bicubic and clamped MLS branches.
 
-### 3.5 Maximum TPS points
+### 3.5 Method options and toggles
 
-`Max TPS Points` limits the number of control points used in the TPS branch. If the value is zero, the full filtered cloud is used. If the value is positive and smaller than the filtered point count, a deterministic decimation stage is applied before TPS model construction.
+The method selector chooses one of:
+
+- **Bicubic Hermite + robust MLS**;
+- **TPS**;
+- **Clamped local MLS (bounded)**.
+
+The checkboxes enable or disable:
+
+- robust outlier removal on the original XYZ cloud;
+- outer-boundary construction and clipping of grid and DXF outputs.
 
 ---
 
@@ -158,7 +156,7 @@ This is the Cartesian node spacing of the regular output grid.
 
 ### 4.1 Motivation
 
-A simple “first-come-first-kept” filter is order-dependent: the result changes if the lines in the XYZ file are reordered. The active code avoids that problem by constructing a **deterministic pre-filter sequence** before acceptance testing.
+The code deliberately avoids a first-come-first-kept thinning rule. Instead, it constructs a deterministic candidate ordering so that the retained cloud does not depend on the row order of the source file.
 
 ### 4.2 Exact duplicate mode
 
@@ -168,114 +166,110 @@ $$
 d_{\min} \le 0,
 $$
 
-the code performs only exact duplicate removal. Two points are considered duplicates if and only if
+the code removes only exact duplicates under exact `double` comparison:
 
 $$
-(x_i, y_i, z_i) = (x_j, y_j, z_j)
+(x_i,y_i,z_i)=(x_j,y_j,z_j).
 $$
-
-in exact `double` comparison.
 
 ### 4.3 Cell assignment
 
-If $d_{\min} > 0$, each point is assigned to a spatial cell
+For $d_{\min}>0$, each point is assigned to a cell
 
 $$
-(i_x, i_y) =
+(i_x,i_y)=
 \left(
-\left\lfloor \frac{x}{d_{\min}} \right\rfloor,\,
+\left\lfloor \frac{x}{d_{\min}} \right\rfloor,
 \left\lfloor \frac{y}{d_{\min}} \right\rfloor
 \right).
 $$
 
-For the cell center
+The corresponding cell center is
 
 $$
-x_c = \left(i_x + \frac{1}{2}\right) d_{\min},
+x_c = \left(i_x+\frac12\right)d_{\min},
 \qquad
-y_c = \left(i_y + \frac{1}{2}\right) d_{\min},
+y_c = \left(i_y+\frac12\right)d_{\min}.
 $$
 
-the point receives the deterministic score
+Each candidate receives the deterministic score
 
 $$
-s = (x - x_c)^2 + (y - y_c)^2.
+s=(x-x_c)^2+(y-y_c)^2.
 $$
 
-The candidate list is then sorted primarily by cell index and secondarily by this score, followed by deterministic coordinate tie-breaks. This makes the thinning stage independent of the original file order.
+The candidate list is stably sorted by cell index, then by $s$, then by coordinate tie-breaks.
 
 ### 4.4 Acceptance criterion
 
-For a candidate point $p_i=(x_i,y_i,z_i)$, the code searches only the $3\times 3$ neighborhood of adjacent cells already accepted in the sparse hash table. A point is rejected if any previously retained point $p_j$ satisfies
+Let $p_i=(x_i,y_i,z_i)$ be a candidate point. The code inspects accepted points in the surrounding $3\times 3$ neighborhood of sparse cells. The candidate is rejected if any previously accepted point $p_j$ satisfies
 
 $$
-(x_i - x_j)^2 + (y_i - y_j)^2 < d_{\min}^2.
+(x_i-x_j)^2+(y_i-y_j)^2 < d_{\min}^2.
 $$
 
-Otherwise the point is accepted.
+Otherwise it is accepted.
 
 ### 4.5 Properties
 
-This strategy gives the filter the following properties:
+The implemented thinning rule is therefore:
 
-- deterministic under line reordering;
-- sparse in memory;
-- local in spatial access;
-- consistent with minimum-distance thinning in the horizontal plane.
+- deterministic;
+- local in memory access;
+- horizontal rather than full 3D distance based;
+- suitable as a stable preconditioner for the subsequent interpolation stages.
 
 ---
 
 ## 5. Robust local outlier rejection
 
-### 5.1 Philosophy
+### 5.1 Position in the active pipeline
 
-The active code does **not** rely on a simple global $z$-threshold. Instead it uses a **local plane residual test** with robust scale estimation. This is substantially better for sloping topography, bathymetry, embankments, breaklines, and irregular local trends.
+In the active code, robust outlier removal is applied **before** deterministic `minDist` thinning. This is materially important, because the residual test is evaluated on the original cloud rather than on an already-thinned subset.
 
-### 5.2 Neighborhood radius
+### 5.2 Neighborhood radius used at runtime
 
-The local radius is defined as
+The runtime pipeline computes the outlier search distance as
 
 $$
-r_n = \max(5 d_{\min}, 0.01).
+r_n = \max\left(5d_{\min},\ 3\bar{\Delta}_{xy},\ 0.01\right),
 $$
 
-Only neighboring points within that radius are considered candidates for the local residual model.
+where $\bar{\Delta}_{xy}$ is the average planar spacing defined later.
+
+The robust threshold factor used by the code is
+
+$$
+\alpha = 3.5.
+$$
 
 ### 5.3 Local weighted plane fit
 
-For each tested point $(x_0,y_0)$, the local surface is approximated as
+For a tested point $(x_0,y_0,z_0)$, the program collects neighboring points within radius $r_n$ and fits the local plane
 
 $$
-z(x,y) \approx a + b_x (x-x_0) + b_y (y-y_0).
+z(x,y) \approx a + b_x(x-x_0) + b_y(y-y_0).
 $$
 
-The weighted least-squares system uses the basis
+The basis is
 
 $$
-\phi(x,y) = \left[ 1,\ x-x_0,\ y-y_0 \right]^{T}.
+\phi(x,y)=\begin{bmatrix}1 & x-x_0 & y-y_0\end{bmatrix}^{T}.
 $$
 
-Let
+The local scale is
 
 $$
-\Delta x_k = x_k - x_0,
-\qquad
-\Delta y_k = y_k - y_0.
+h = \max\left(\sqrt{\frac1n\sum_{k=1}^{n}\big[(x_k-x_0)^2+(y_k-y_0)^2\big]},\ 10^{-6}\right).
 $$
 
-The local reference scale is
+The geometric weights are
 
 $$
-h = \max\!\left(\sqrt{\frac{1}{n}\sum_{k=1}^{n}(\Delta x_k^2+\Delta y_k^2)},\,10^{-6}\right).
+w_k = \frac{1}{1 + \dfrac{(x_k-x_0)^2+(y_k-y_0)^2}{h^2}}.
 $$
 
-The geometric weight is
-
-$$
-w_k = \frac{1}{1 + \dfrac{\Delta x_k^2 + \Delta y_k^2}{h^2}}.
-$$
-
-The normal equations are
+The weighted normal equations are
 
 $$
 (\mathbf{A}^{T}\mathbf{W}\mathbf{A})\,\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z},
@@ -284,126 +278,124 @@ $$
 with
 
 $$
-\mathbf{c} = \begin{bmatrix} a & b_x & b_y \end{bmatrix}^{T}.
+\mathbf{c}=\begin{bmatrix}a & b_x & b_y\end{bmatrix}^{T}.
 $$
 
-A very small diagonal stabilization is added:
+The code adds a tiny diagonal stabilization:
 
 $$
 \mathbf{A}^{T}\mathbf{W}\mathbf{A}
 \leftarrow
-\mathbf{A}^{T}\mathbf{W}\mathbf{A} + 10^{-12}\mathbf{I}.
+\mathbf{A}^{T}\mathbf{W}\mathbf{A}+10^{-12}\mathbf{I}.
 $$
 
-### 5.4 Leave-one-out logic
+### 5.4 Neighborhood sufficiency logic
 
-When testing a point $p_i$, the point itself is excluded from the fitting neighborhood. This prevents the tested point from masking its own outlier status.
+If fewer than 6 usable neighbors remain after range filtering, the point is conservatively retained rather than aggressively removed.
 
-### 5.5 Residual and robust scale
+### 5.5 Residual center and robust scale
 
-Once the local plane is fitted, local residuals are formed as
-
-$$
-r_k = z_k - \left(a + b_x \Delta x_k + b_y \Delta y_k\right).
-$$
-
-The residual center is taken as the median
+After fitting the plane, the neighborhood residuals are
 
 $$
-\widetilde{r} = \mathrm{median}(r_k).
+r_k = z_k - \big(a + b_x(x_k-x_0) + b_y(y_k-y_0)\big).
 $$
 
-Then the absolute deviations are
+The residual center is the median
 
 $$
-d_k = |r_k - \widetilde{r}|,
+\widetilde{r}=\operatorname{median}(r_k).
 $$
 
-and the MAD-based robust scale is
+The median absolute deviation is
 
 $$
-\mathrm{MAD} = \mathrm{median}(d_k),
+\operatorname{MAD} = \operatorname{median}\big(|r_k-\widetilde{r}|\big).
 $$
 
-$$
-\sigma_{\mathrm{rob}} = \max(1.4826\,\mathrm{MAD},\,10^{-8}).
-$$
-
-### 5.6 Rejection criterion
-
-The tested point residual is evaluated against the fitted local plane and median-centered residual field. The point is retained if
+The robust scale is
 
 $$
-|r_i - \widetilde{r}| \le \alpha \sigma_{\mathrm{rob}},
+\sigma_{\mathrm{rob}} = \max\big(1.4826\,\operatorname{MAD},\ 10^{-8}\big).
 $$
 
-where in the active pipeline
+### 5.6 Pointwise decision rule
+
+The code evaluates the tested point using
 
 $$
-\alpha = 3.5.
+r_{\mathrm{self}} = \left|z_0-a-\widetilde{r}\right|.
 $$
 
-If the neighborhood is too small for a stable local estimate, the point is conservatively retained.
+The point is kept when
+
+$$
+r_{\mathrm{self}} \le \alpha\,\sigma_{\mathrm{rob}}.
+$$
+
+Otherwise it is rejected.
 
 ---
 
 ## 6. Grid construction
 
-After filtering and outlier removal, the code constructs a regular Cartesian grid over an expanded bounding box.
+After conditioning, the code builds a regular Cartesian grid over an expanded bounding box of the filtered point cloud.
 
-Let the clean cloud bounding box be
+Let the filtered-data bounds be
 
 $$
 x_{\min}^{d},\ x_{\max}^{d},\ y_{\min}^{d},\ y_{\max}^{d}.
 $$
 
-The grid margin is
+The margin is
 
 $$
-m = 1.5 h.
+m = 1.5h.
 $$
 
-Hence the interpolation domain is
+Hence the grid extent is
 
 $$
-x_{\min} = x_{\min}^{d} - m,
+x_{\min}=x_{\min}^{d}-m,
 \qquad
-x_{\max} = x_{\max}^{d} + m,
+x_{\max}=x_{\max}^{d}+m,
 $$
 
 $$
-y_{\min} = y_{\min}^{d} - m,
+y_{\min}=y_{\min}^{d}-m,
 \qquad
-y_{\max} = y_{\max}^{d} + m.
+y_{\max}=y_{\max}^{d}+m.
 $$
 
-The grid sizes are
+The code then forms
 
 $$
-n_x = \left\lceil \frac{\max(x_{\max}-x_{\min},1)}{h}\right\rceil + 1,
+W = \max(x_{\max}-x_{\min}, 1),
 \qquad
-n_y = \left\lceil \frac{\max(y_{\max}-y_{\min},1)}{h}\right\rceil + 1.
-$$
-
-The grid nodes are
-
-$$
-x_i = x_{\min} + i h,
-\qquad i=0,\dots,n_x-1,
+H = \max(y_{\max}-y_{\min}, 1),
 $$
 
 $$
-y_j = y_{\min} + j h,
-\qquad j=0,\dots,n_y-1.
+n_x = \left\lceil \frac{W}{h} \right\rceil + 1,
+\qquad
+n_y = \left\lceil \frac{H}{h} \right\rceil + 1.
 $$
 
-The total node count is
+The node coordinates are
 
 $$
-N_g = n_x n_y.
+x_i = x_{\min} + ih,
+\qquad
+y_j = y_{\min} + jh.
 $$
 
-Overflow checks are applied when forming this product.
+The planned node count is
+
+$$
+N_g = n_x n_y,
+$$
+
+with explicit overflow checks before multiplication.
 
 ---
 
@@ -411,50 +403,52 @@ Overflow checks are applied when forming this product.
 
 ### 7.1 Average planar spacing
 
-The average spacing used repeatedly in the code is
+The code repeatedly uses the characteristic spacing
 
 $$
-\bar{\Delta}_{xy} =
-\sqrt{\frac{A}{N}},
+\bar{\Delta}_{xy} = \sqrt{\frac{A}{N}},
+$$
+
+where
+
+$$
+A = \max\big((x_{\max}-x_{\min})(y_{\max}-y_{\min}),\ 10^{-12}\big).
+$$
+
+This is used to size spatial-hash cells, boundary raster cells, and local support scales.
+
+### 7.2 Inverse-distance fallback
+
+Whenever a preferred local interpolant fails, the code falls back to inverse-distance weighting over up to 16 nearest points:
+
+$$
+z(x,y) = \frac{\sum_{k=1}^{m} w_k z_k}{\sum_{k=1}^{m} w_k},
 $$
 
 with
 
 $$
-A = \max\!\left((x_{\max}-x_{\min})(y_{\max}-y_{\min}),\,10^{-12}\right).
-$$
-
-This quantity is used to define spatial hash cell sizes and local neighborhood scales.
-
-### 7.2 Inverse-distance fallback
-
-Whenever a preferred interpolant fails, the code falls back to inverse-distance weighting:
-
-$$
-z(x,y) =
-\frac{\sum_{k=1}^{m} w_k z_k}{\sum_{k=1}^{m} w_k},
-\qquad
 w_k = \frac{1}{10^{-12} + (x-x_k)^2 + (y-y_k)^2}.
 $$
 
-This fallback is a safeguard, not the preferred method.
+This fallback is intentionally conservative and is explicitly recorded in the diagnostics.
 
 ---
 
 ## 8. Local anisotropic coordinate system
 
-Both the robust MLS and TPS branches rely on a local anisotropic coordinate system obtained from a weighted covariance analysis.
+The MLS and TPS branches both build a local anisotropic principal frame.
 
 ### 8.1 Preliminary scale
 
-For a query point $(x_0,y_0)$ and neighborhood $\mathcal{N}$,
+For query point $(x_0,y_0)$ and neighborhood $\mathcal{N}$,
 
 $$
-\bar{r}^2 = \frac{1}{n}\sum_{k=1}^{n}\left[(x_k-x_0)^2+(y_k-y_0)^2\right],
+\bar{r}^2 = \frac1n\sum_{k=1}^{n}\big[(x_k-x_0)^2+(y_k-y_0)^2\big],
 $$
 
 $$
-h_0 = \max\!\left(\sqrt{\max(\bar{r}^2,10^{-12})},\ \max(h,10^{-6})\right).
+h_0 = \max\big(\sqrt{\max(\bar{r}^2,10^{-12})},\ \max(h,10^{-6})\big).
 $$
 
 ### 8.2 Preliminary weights
@@ -462,24 +456,23 @@ $$
 The covariance weights are
 
 $$
-w_k^{\mathrm{frame}} =
-\frac{1}{1 + \dfrac{(x_k-x_0)^2 + (y_k-y_0)^2}{h_0^2}}.
+w_k^{\mathrm{frame}} = \frac{1}{1 + \dfrac{(x_k-x_0)^2+(y_k-y_0)^2}{h_0^2}}.
 $$
 
 ### 8.3 Weighted covariance matrix
 
-The code forms the weighted second moments
+The weighted second moments are
 
 $$
-S_{xx} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}} (x_k-x_0)^2,
-$$
-
-$$
-S_{yy} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}} (y_k-y_0)^2,
+S_{xx} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(x_k-x_0)^2,
 $$
 
 $$
-S_{xy} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}} (x_k-x_0)(y_k-y_0),
+S_{yy} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(y_k-y_0)^2,
+$$
+
+$$
+S_{xy} = \frac{1}{W}\sum_k w_k^{\mathrm{frame}}(x_k-x_0)(y_k-y_0),
 $$
 
 with
@@ -490,10 +483,10 @@ $$
 
 ### 8.4 Principal directions
 
-The trace and spectral split are
+The code computes
 
 $$
-\mathrm{tr}(\mathbf{S}) = S_{xx}+S_{yy},
+\operatorname{tr}(\mathbf{S}) = S_{xx}+S_{yy},
 $$
 
 $$
@@ -501,35 +494,35 @@ $$
 $$
 
 $$
-\lambda_1 = \max\!\left(\frac{\mathrm{tr}(\mathbf{S})+\Delta}{2},0\right),
+\lambda_1 = \max\left(\frac{\operatorname{tr}(\mathbf{S})+\Delta}{2},0\right),
 \qquad
-\lambda_2 = \max\!\left(\frac{\mathrm{tr}(\mathbf{S})-\Delta}{2},0\right).
+\lambda_2 = \max\left(\frac{\operatorname{tr}(\mathbf{S})-\Delta}{2},0\right).
 $$
 
-The principal-frame angle is
+The frame angle is
 
 $$
-\theta = \frac{1}{2}\mathrm{atan2}(2S_{xy}, S_{xx}-S_{yy}).
+\theta = \frac12\operatorname{atan2}(2S_{xy}, S_{xx}-S_{yy}).
 $$
 
-Therefore,
+The orthonormal axes are
 
 $$
-\mathbf{e}_1 = (\cos\theta,\sin\theta),
+\mathbf{e}_1=(\cos\theta,\sin\theta),
 \qquad
-\mathbf{e}_2 = (-\sin\theta,\cos\theta).
+\mathbf{e}_2=(-\sin\theta,\cos\theta).
 $$
 
 ### 8.5 Local scales
 
-The anisotropic normalization scales are
+The anisotropic scaling lengths are
 
 $$
-s_1 = \max\!\left(\sqrt{\lambda_1},\ 0.75\max(h,10^{-6})\right),
+s_1 = \max\big(\sqrt{\lambda_1},\ 0.75\max(h,10^{-6})\big),
 $$
 
 $$
-s_2 = \max\!\left(\sqrt{\lambda_2},\ 0.35\max(h,10^{-6})\right).
+s_2 = \max\big(\sqrt{\lambda_2},\ 0.35\max(h,10^{-6})\big).
 $$
 
 ### 8.6 Local coordinates
@@ -537,32 +530,36 @@ $$
 For any point $(x,y)$,
 
 $$
-u = \frac{(x-x_0)e_{1x} + (y-y_0)e_{1y}}{s_1},
+u = \frac{(x-x_0)e_{1x}+(y-y_0)e_{1y}}{s_1},
 \qquad
-v = \frac{(x-x_0)e_{2x} + (y-y_0)e_{2y}}{s_2}.
+v = \frac{(x-x_0)e_{2x}+(y-y_0)e_{2y}}{s_2}.
 $$
 
-The normalized radial coordinate is
+The normalized local radius is
 
 $$
-\rho = \sqrt{u^2 + v^2}.
+\rho = \sqrt{u^2+v^2}.
 $$
 
 ---
 
 ## 9. Adaptive neighborhood support
 
-The active code uses quantile-based support selection. The ordered local radii $\rho_k$ are computed, and quantiles are extracted, including approximately the 80th and 90th percentiles.
-
-The final support radius is of the form
+For a candidate neighborhood, the code computes the transformed radii $\rho_k$ and sorts them. The support radius is then chosen as
 
 $$
-\rho_s = \max\!\left(\rho_{\min},\ 1.5,\ \rho_{80},\ 0.75\rho_{90}\right),
+r_s = \max\big(r_{\min},\ 1.5,\ \rho_{80},\ 0.75\rho_{90}\big),
 $$
 
-possibly multiplied by a tuning factor in the MLS branches.
+where $\rho_{80}$ and $\rho_{90}$ are the 80th and 90th percentile radii.
 
-The neighborhood is then selected adaptively from the spatial-hash candidate pool under minimum and maximum cardinality requirements.
+The final adaptive neighborhood is selected by retaining all candidates with
+
+$$
+\rho_k \le r_s,
+$$
+
+while enforcing minimum and maximum cardinality constraints. If too few points satisfy the support-radius test, the nearest-ranked points are retained until the minimum count is met.
 
 ---
 
@@ -570,151 +567,158 @@ The neighborhood is then selected adaptively from the spatial-hash candidate poo
 
 ### 10.1 Basis order
 
-The code supports two polynomial basis orders:
+The MLS branch supports two polynomial orders:
 
-- **quadratic**, with 6 coefficients;
-- **cubic**, with 10 coefficients.
+- quadratic: 6 coefficients;
+- cubic: 10 coefficients.
 
-The basis count function is
+The active helper function is therefore
 
-- $n_b = 6$ for the quadratic basis.
-- $n_b = 10$ for the cubic basis.
+$$
+n_b =
+\begin{cases}
+6, & \text{basisOrder}=2,\\
+10, & \text{basisOrder}\ge 3.
+\end{cases}
+$$
 
 ### 10.2 Polynomial basis
 
-The local polynomial basis used in the code is
+The implemented basis is
 
 $$
 \phi_0 = 1,
-\qquad
+\quad
 \phi_1 = u,
-\qquad
+\quad
 \phi_2 = v,
 $$
 
 $$
-\phi_3 = \frac{1}{2}u^2,
-\qquad
+\phi_3 = \frac12u^2,
+\quad
 \phi_4 = uv,
-\qquad
-\phi_5 = \frac{1}{2}v^2.
+\quad
+\phi_5 = \frac12v^2.
 $$
 
-If cubic mode is enabled, the basis is extended by
+If cubic mode is enabled, the code appends
 
 $$
-\phi_6 = \frac{1}{6}u^3,
-\qquad
-\phi_7 = \frac{1}{2}u^2v,
-\qquad
-\phi_8 = \frac{1}{2}uv^2,
-\qquad
-\phi_9 = \frac{1}{6}v^3.
+\phi_6 = \frac16u^3,
+\quad
+\phi_7 = \frac12u^2v,
+\quad
+\phi_8 = \frac12uv^2,
+\quad
+\phi_9 = \frac16v^3.
 $$
 
-The local approximation is
+The fitted polynomial value is
 
 $$
-p(u,v) = \sum_{k=0}^{n_b-1} c_k \phi_k(u,v).
+f(u,v) = \sum_{k=0}^{n_b-1} c_k\phi_k(u,v).
 $$
 
 ### 10.3 Compact support kernel
 
-The geometric support kernel is the Wendland-type form
+The geometric support kernel is the compact Wendland weight
 
-The compact support kernel is defined by:
-
-- $w_c(q) = (1-q)^4(4q+1)$ for $q < 1$;
-- $w_c(q) = 0$ for $q \ge 1$.
+$$
+w_c(q) =
+\begin{cases}
+(1-q)^4(4q+1), & q<1,\\
+0, & q\ge 1,
+\end{cases}
+$$
 
 with
 
 $$
-q = \frac{\rho}{\rho_s}.
+q = \frac{\rho}{r_s}.
 $$
 
-The geometric MLS weight is
+The final geometric factor used in the MLS fit is
 
 $$
-w_{\mathrm{geom}}(\rho) =
-\max\!\left(\frac{w_c(q)}{1+\rho^2},\,10^{-14}\right).
+w_{\mathrm{geom}} = \max\left(\frac{w_c(\rho/r_s)}{1+\rho^2},\ 10^{-14}\right).
 $$
 
 ### 10.4 Robust reweighting
 
-The MLS solve is repeated for three robust IRLS-like passes. Let $r_k$ be the residual at a fitted point. The code computes the median residual center and MAD scale,
+The fit uses three iteratively reweighted passes. After each pass, residuals are formed, their median-centered MAD scale is computed,
 
 $$
-\widetilde{r} = \mathrm{median}(r_k),
-\qquad
-\sigma = \max(1.4826\,\mathrm{MAD},\,10^{-8}).
+\sigma = \max(1.4826\,\operatorname{MAD}, 10^{-8}),
 $$
 
-The normalized robust coordinate is
+and a Tukey-type reweighting is applied with
 
 $$
-t_k = \frac{|r_k|}{4.685\,\sigma}.
+t = \frac{|z_i-f_i|}{4.685\sigma}.
 $$
 
-The robust weight update is Tukey-like:
-
-The robust weight update is:
-
-- $w_k^{\mathrm{rob}} = \max((1-t_k^2)^2,\,10^{-4})$ for $t_k < 1$;
-- $w_k^{\mathrm{rob}} = 10^{-4}$ for $t_k \ge 1$.
-
-The total fitting weight becomes
+The robust weight update is
 
 $$
-w_k = \max\!\left(w_{\mathrm{geom},k}\,w_k^{\mathrm{rob}},\,10^{-14}\right).
+w_i^{\mathrm{rob}} =
+\begin{cases}
+10^{-4}, & t\ge 1,\\
+\max\big((1-t^2)^2,\ 10^{-4}\big), & t<1.
+\end{cases}
 $$
 
 ### 10.5 Regularized normal equations
 
-The MLS coefficients are obtained from
+The local normal equations are assembled as
 
 $$
-\left( \mathbf{A}^{\mathsf T}\mathbf{W}\mathbf{A} + \lambda \mathbf{I} \right)\mathbf{c}
-=
-\mathbf{A}^{\mathsf T}\mathbf{W}\mathbf{z}.
+\mathbf{A}^{T}\mathbf{W}\mathbf{A}\,\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z},
 $$
 
-The code computes a trace-based ridge parameter
+with combined weight
 
 $$
-\lambda =
-\max\!\left(
-10^{-12},
-\ \text{ridgeFactor}\times 10^{-11}
-\frac{\mathrm{tr}(\mathbf{A}^{T}\mathbf{W}\mathbf{A})}{n_b}
-\right).
+w_i = \max\big(w_{\mathrm{geom},i}\,w_i^{\mathrm{rob}},\ 10^{-14}\big).
+$$
+
+The diagonal ridge is scaled from the matrix trace:
+
+$$
+\lambda_{\mathrm{ridge}} = \max\left(10^{-12},\ \texttt{ridgeFactor}\times 10^{-11}\frac{\operatorname{tr}(\mathbf{A}^{T}\mathbf{W}\mathbf{A})}{n_b}\right).
+$$
+
+Hence the solved system is
+
+$$
+\big(\mathbf{A}^{T}\mathbf{W}\mathbf{A}+\lambda_{\mathrm{ridge}}\mathbf{I}\big)\mathbf{c} = \mathbf{A}^{T}\mathbf{W}\mathbf{z}.
 $$
 
 ### 10.6 Validation metrics
 
-For a set of errors $e_k$, the code reports
+For MLS and TPS, the code uses the metrics
 
 $$
-\mathrm{RMSE} =
-\sqrt{\frac{1}{n}\sum_{k=1}^{n} e_k^2},
+\operatorname{RMSE} = \sqrt{\frac1n\sum_{i=1}^{n} e_i^2},
 $$
 
 $$
-\mathrm{MAE} =
-\frac{1}{n}\sum_{k=1}^{n}|e_k|,
+\operatorname{MAE} = \frac1n\sum_{i=1}^{n}|e_i|,
 $$
 
-and the 95th percentile absolute error $P95$.
+$$
+P95 = \text{95th percentile of } |e_i|.
+$$
 
-The combined selection score is
+The scalar tuning score is
 
 $$
-S = \mathrm{RMSE} + 0.35\,P95 + 0.15\,\mathrm{MAE}.
+S = \operatorname{RMSE} + 0.35\,P95 + 0.15\,\operatorname{MAE}.
 $$
 
 ### 10.7 Predictive local validation
 
-The code also performs limited local predictive validation by removing selected neighborhood points and predicting them from the remaining set. This provides a **local holdout-like quality estimate** for node construction.
+For local MLS node estimation, the code performs deterministic local holdout checks. If those checks fail to produce a valid metric set, it falls back to the fit residual metrics.
 
 ---
 
@@ -722,19 +726,15 @@ The code also performs limited local predictive validation by removing selected 
 
 ### 11.1 Nodal quantities
 
-At each grid node, the MLS fit supplies a local value and local derivatives:
+At each grid node, the MLS fit provides
 
 $$
 z = c_0,
 \qquad
 f_u = c_1,
 \qquad
-f_v = c_2.
-$$
-
-The second-order local quantities are
-
-$$
+f_v = c_2,
+\qquad
 f_{uu} = c_3,
 \qquad
 f_{uv} = c_4,
@@ -744,200 +744,200 @@ $$
 
 ### 11.2 Chain-rule mapping to global coordinates
 
-The transformation derivatives are
+The local-to-global derivatives used by the Hermite patch are
 
 $$
-\frac{\partial u}{\partial x} = \frac{e_{1x}}{s_1},
+\frac{\partial u}{\partial x}=\frac{e_{1x}}{s_1},
 \qquad
-\frac{\partial u}{\partial y} = \frac{e_{1y}}{s_1},
+\frac{\partial u}{\partial y}=\frac{e_{1y}}{s_1},
 $$
 
 $$
-\frac{\partial v}{\partial x} = \frac{e_{2x}}{s_2},
+\frac{\partial v}{\partial x}=\frac{e_{2x}}{s_2},
 \qquad
-\frac{\partial v}{\partial y} = \frac{e_{2y}}{s_2}.
+\frac{\partial v}{\partial y}=\frac{e_{2y}}{s_2}.
 $$
 
-Hence,
+The code then computes
 
 $$
-f_x = f_u \frac{\partial u}{\partial x} + f_v \frac{\partial v}{\partial x},
-$$
-
-$$
-f_y = f_u \frac{\partial u}{\partial y} + f_v \frac{\partial v}{\partial y},
+f_x = f_u\frac{\partial u}{\partial x} + f_v\frac{\partial v}{\partial x},
 $$
 
 $$
-f_{xy} =
-f_{uu}\frac{\partial u}{\partial x}\frac{\partial u}{\partial y}
+f_y = f_u\frac{\partial u}{\partial y} + f_v\frac{\partial v}{\partial y},
+$$
+
+$$
+\begin{aligned}
+f_{xy}
+&= f_{uu}\,\frac{\partial u}{\partial x}\,\frac{\partial u}{\partial y}
+\\[4pt]
+&\quad + f_{uv}\!\left(
+\frac{\partial u}{\partial x}\,\frac{\partial v}{\partial y}
 +
-f_{uv}\left(
-\frac{\partial u}{\partial x}\frac{\partial v}{\partial y}
-+
-\frac{\partial v}{\partial x}\frac{\partial u}{\partial y}
+\frac{\partial v}{\partial x}\,\frac{\partial u}{\partial y}
 \right)
-+
-f_{vv}\frac{\partial v}{\partial x}\frac{\partial v}{\partial y}.
+\\[4pt]
+&\quad + f_{vv}\,\frac{\partial v}{\partial x}\,\frac{\partial v}{\partial y}.
+\end{aligned}
 $$
 
 ### 11.3 Nodewise derivative limiting
 
-Before nodal data are used in Hermite patches, the code limits nodal derivatives using a local vertical range
+Before Hermite reconstruction, the nodal derivatives are bounded using the local $z$ range
 
 $$
-\Delta z_{\mathrm{loc}} = \max(z_{\max}^{\mathrm{loc}} - z_{\min}^{\mathrm{loc}},\,10^{-8}).
+\Delta z = \max(z_{\max}^{\mathrm{loc}}-z_{\min}^{\mathrm{loc}}, 10^{-8}).
 $$
 
-The slope and twist bounds are
+The nodewise slope and twist caps are
 
 $$
-L_s = \frac{3\Delta z_{\mathrm{loc}}}{\max(h,10^{-6})},
+L_s = \frac{3\Delta z}{\max(h,10^{-6})},
 \qquad
-L_t = \frac{4\Delta z_{\mathrm{loc}}}{\max(h^2,10^{-6})}.
+L_t = \frac{4\Delta z}{\max(h^2,10^{-6})}.
 $$
 
-The clamped node derivatives satisfy
+The code clamps
 
 $$
-f_x \in [-L_s,L_s],
+f_x \leftarrow \operatorname{clip}(f_x,-L_s,L_s),
 \qquad
-f_y \in [-L_s,L_s],
-\qquad
-f_{xy} \in [-L_t,L_t].
+f_y \leftarrow \operatorname{clip}(f_y,-L_s,L_s),
+$$
+
+$$
+f_{xy} \leftarrow \operatorname{clip}(f_{xy},-L_t,L_t).
 $$
 
 ### 11.4 Cellwise minmod derivative limiting
 
-At the cell level, the code computes directional slopes
+For a cell with corner values $z_{00},z_{10},z_{01},z_{11}$ and spacings $h_x,h_y$, the finite-difference slopes are
 
 $$
-s_{x0} = \frac{z_{10}-z_{00}}{h_x},
+s_{x0} = \frac{z_{10}-z_{00}}{\max(h_x,10^{-6})},
 \qquad
-s_{x1} = \frac{z_{11}-z_{01}}{h_x},
+s_{x1} = \frac{z_{11}-z_{01}}{\max(h_x,10^{-6})},
 $$
 
 $$
-s_{y0} = \frac{z_{01}-z_{00}}{h_y},
+s_{y0} = \frac{z_{01}-z_{00}}{\max(h_y,10^{-6})},
 \qquad
-s_{y1} = \frac{z_{11}-z_{10}}{h_y}.
+s_{y1} = \frac{z_{11}-z_{10}}{\max(h_y,10^{-6})}.
 $$
 
-It then applies the minmod operator
+The limiter is
 
-The minmod limiter is defined as follows:
+$$
+\operatorname{minmod}(a,b)=
+\begin{cases}
+0, & ab\le 0,\\
+\operatorname{sign}(a)\min(|a|,|b|), & ab>0.
+\end{cases}
+$$
 
-- $\mathrm{minmod}(a,b) = 0$ if $ab \le 0$;
-- $\mathrm{minmod}(a,b) = a$ if $|a| < |b|$ and $ab > 0$;
-- $\mathrm{minmod}(a,b) = b$ if $|b| \le |a|$ and $ab > 0$.
+The mixed-derivative baseline is
 
-The cellwise derivative limits are applied consistently to $f_x$, $f_y$, and to the cross derivative via a cross-base estimate. This is intended to reduce overshoot and oscillatory behavior.
+$$
+c_{\times} = \frac12\left(
+\frac{s_{y1}-s_{y0}}{\max(h_x,10^{-6})}
++
+\frac{s_{x1}-s_{x0}}{\max(h_y,10^{-6})}
+\right),
+$$
+
+with cap
+
+$$
+L_{\times} = 2|c_{\times}| + 10^{-8}.
+$$
 
 ### 11.5 Hermite basis functions
 
-The bicubic Hermite evaluation uses the classical cubic basis functions
+The one-dimensional cubic Hermite functions are
 
 $$
-h_{00}(u) = 2u^3 - 3u^2 + 1,
+h_{00}(t)=2t^3-3t^2+1,
 \qquad
-h_{10}(u) = u^3 - 2u^2 + u,
+h_{10}(t)=t^3-2t^2+t,
 $$
 
 $$
-h_{01}(u) = -2u^3 + 3u^2,
+h_{01}(t)=-2t^3+3t^2,
 \qquad
-h_{11}(u) = u^3 - u^2,
+h_{11}(t)=t^3-t^2.
 $$
-
-and analogously in $v$.
 
 ### 11.6 Bicubic cell surface
 
-For node data $(z, f_x, f_y, f_{xy})$ at corners $00,10,01,11$, the interpolated value is
+For normalized local coordinates $(u,v)\in[0,1]^2$, the implemented patch is
 
 $$
-f(u,v) = T_0 + T_x + T_y + T_{xy}.
-$$
-
-$$
-T_0 = z_{00} h_{00}(u) h_{00}(v)
-+ z_{10} h_{01}(u) h_{00}(v)
-+ z_{01} h_{00}(u) h_{01}(v)
-+ z_{11} h_{01}(u) h_{01}(v).
-$$
-
-$$
-T_x = h_x \bigl(
- f_{x,00} h_{10}(u) h_{00}(v)
-+ f_{x,10} h_{11}(u) h_{00}(v)
-+ f_{x,01} h_{10}(u) h_{01}(v)
-+ f_{x,11} h_{11}(u) h_{01}(v)
-\bigr).
-$$
-
-$$
-T_y = h_y \bigl(
- f_{y,00} h_{00}(u) h_{10}(v)
-+ f_{y,10} h_{01}(u) h_{10}(v)
-+ f_{y,01} h_{00}(u) h_{11}(v)
-+ f_{y,11} h_{01}(u) h_{11}(v)
-\bigr).
-$$
-
-$$
-T_{xy} = h_x h_y \bigl(
- f_{xy,00} h_{10}(u) h_{10}(v)
-+ f_{xy,10} h_{11}(u) h_{10}(v)
-+ f_{xy,01} h_{10}(u) h_{11}(v)
-+ f_{xy,11} h_{11}(u) h_{11}(v)
-\bigr).
+\begin{aligned}
+f(u,v) ={}&
+ z_{00}h_{00}(u)h_{00}(v)
++z_{10}h_{01}(u)h_{00}(v)
++z_{01}h_{00}(u)h_{01}(v)
++z_{11}h_{01}(u)h_{01}(v) \\
+&+ h_x\Big(f_{x,00}h_{10}(u)h_{00}(v)+f_{x,10}h_{11}(u)h_{00}(v)
++f_{x,01}h_{10}(u)h_{01}(v)+f_{x,11}h_{11}(u)h_{01}(v)\Big) \\
+&+ h_y\Big(f_{y,00}h_{00}(u)h_{10}(v)+f_{y,10}h_{01}(u)h_{10}(v)
++f_{y,01}h_{00}(u)h_{11}(v)+f_{y,11}h_{01}(u)h_{11}(v)\Big) \\
+&+ h_xh_y\Big(f_{xy,00}h_{10}(u)h_{10}(v)+f_{xy,10}h_{11}(u)h_{10}(v)
++f_{xy,01}h_{10}(u)h_{11}(v)+f_{xy,11}h_{11}(u)h_{11}(v)\Big).
+\end{aligned}
 $$
 
 ### 11.7 Final value envelope clamp
 
-After Hermite evaluation, the code constrains the result to the corner envelope enlarged by a small pad:
+After evaluating the bicubic patch, the result is softly clamped to the four-corner value envelope. Define
 
 $$
-z_{\min} = \min(z_{00},z_{10},z_{01},z_{11}),
+z_{\min}=\min(z_{00},z_{10},z_{01},z_{11}),
 \qquad
-z_{\max} = \max(z_{00},z_{10},z_{01},z_{11}),
+z_{\max}=\max(z_{00},z_{10},z_{01},z_{11}),
 $$
 
 $$
-p = 0.05 \max(z_{\max}-z_{\min},\,10^{-8}),
+p = 0.05\max(z_{\max}-z_{\min},10^{-8}).
 $$
 
-$$
-f(u,v) \leftarrow \max(z_{\min}-p,\ \min(z_{\max}+p,\ f(u,v))).
-$$
+The final bicubic value is limited by
 
-This is an additional safety clamp against excessive oscillation.
+$$
+f \leftarrow \max(z_{\min}-p,\ \min(z_{\max}+p, f)).
+$$
 
 ### 11.8 Parameter tuning
 
-The bicubic/MLS branch tunes:
+The bicubic/MLS tuning search uses the exact active option sets
 
-- target neighborhood size;
-- support multiplier;
-- ridge factor;
-- polynomial order.
+$$
+\texttt{neighborhoodTarget}\in\{48,64,96,128\},
+$$
 
-The tested values are:
+$$
+\texttt{supportMultiplier}\in\{1.75,2.25,2.75\},
+$$
 
-- neighborhood target in $\{32, 48, 64, 96\}$,
-- support multiplier in $\{1.5, 1.75, 2.25\}$,
-- ridge factor in $\{1, 10\}$,
-- basis order in $\{2,3\}$.
+$$
+\texttt{ridgeFactor}\in\{1,10,50\},
+$$
 
-Selection is based on predictive global holdout metrics.
+$$
+\texttt{basisOrder}\in\{2,3\}.
+$$
+
+Selection is based on the smallest tuning score $S$ from deterministic global holdout validation.
 
 ---
 
 ## 12. Clamped local MLS (bounded)
 
-This method reuses the robust anisotropic MLS node evaluation, but instead of constructing a bicubic Hermite patch, it evaluates a single local MLS prediction at the query location and then constrains the value to the local data envelope.
+This branch reuses the robust anisotropic MLS node evaluation at the query point, but replaces bicubic cell reconstruction by a direct local prediction followed by an envelope clamp.
 
-For the neighborhood $\mathcal{N}$,
+For the local envelope extracted from up to 32 nearest neighbors,
 
 $$
 z_{\min}^{\mathcal{N}} = \min_{k\in\mathcal{N}} z_k,
@@ -945,13 +945,13 @@ z_{\min}^{\mathcal{N}} = \min_{k\in\mathcal{N}} z_k,
 z_{\max}^{\mathcal{N}} = \max_{k\in\mathcal{N}} z_k.
 $$
 
-The final value is
+If $z_{\mathrm{MLS}}$ is the raw local MLS prediction, the final value is
 
 $$
-z^{*} = \max\!\left(z_{\min}^{\mathcal{N}},\, \min\!\left(z_{\max}^{\mathcal{N}},\, z_{\mathrm{MLS}}\right)\right).
+z^{*} = \max\left(z_{\min}^{\mathcal{N}},\ \min\left(z_{\max}^{\mathcal{N}}, z_{\mathrm{MLS}}\right)\right).
 $$
 
-This mode is intended for conservative local evaluation with reduced overshoot risk. It is not a full monotonicity-preserving finite-volume scheme; rather, it is a bounded local regression method.
+This branch is therefore not a monotone finite-volume method. It is a **bounded local regression** method.
 
 ---
 
@@ -959,258 +959,241 @@ This mode is intended for conservative local evaluation with reduced overshoot r
 
 ### 13.1 Control set preparation
 
-If the filtered point count exceeds `Max TPS Points`, the control set is reduced in two stages:
-
-1. a coarse spatial preselection by grid cell;
-2. a farthest-point-like deterministic diversification stage.
-
-This reduces the TPS control count while preserving coverage.
+The active code uses **all filtered points** as TPS control points. There is no GUI-side control-count cap in the current implementation.
 
 ### 13.2 Model construction
 
-The TPS model stores:
-
-- the control points;
-- a spatial hash index;
-- a support-mask / hull proxy;
-- a target neighborhood size;
-- a learned suggested regularization parameter;
-- holdout validation metrics.
-
-The target neighborhood size is chosen as
+Let $N_c$ be the number of TPS control points. The target TPS neighborhood size is
 
 $$
-N_{\mathrm{TPS}} =
-\min\!\left(
-\max\!\left(64,\ 3\sqrt{N_c}\right),
-\ \min(160,N_c)
-\right),
+N_{\mathrm{TPS}} = \min\left(\max\left(64,\ 3\sqrt{N_c}\right),\ \min(160,N_c)\right).
 $$
 
-where $N_c$ is the control-point count.
+The TPS spatial hash uses cell size
+
+$$
+c_{\mathrm{TPS}} = \max(3\bar{\Delta}_{xy},10^{-6}).
+$$
+
+The model-level initial regularization is
+
+$$
+\lambda_{0}=10^{-9}.
+$$
 
 ### 13.3 Holdout learning of $\lambda$
 
-The code performs deterministic holdout validation on a subset of control points, builds a training model without those points, predicts the holdouts, and records local $\lambda$ values returned by the TPS solver. The median of the learned $\lambda$ values becomes the model-level suggested regularization.
+The code builds a deterministic holdout subset of at most 32 control points. Predictions on the training-only model are used to compute holdout errors and collect locally selected $\lambda$ values. The model-level suggested regularization becomes the median learned $\lambda$.
 
 ### 13.4 TPS kernel
 
-The thin-plate radial basis kernel is
+The radial basis kernel used by the code is
 
-The TPS radial basis kernel is defined by:
-
-- $\phi(r^2) = 0$ for $r^2 \le 10^{-24}$;
-- $\phi(r^2) = r^2 \log(r^2)$ for $r^2 > 10^{-24}$.
+$$
+\Phi(r^2) =
+\begin{cases}
+0, & r^2\le 10^{-24},\\
+r^2\log(r^2), & r^2>10^{-24}.
+\end{cases}
+$$
 
 ### 13.5 Local patch system
 
-For a local patch with $m$ selected control points, the TPS system has dimension
+For a local patch with $m$ retained control points in local coordinates $(u_i,v_i)$, the code solves the standard TPS augmented system in the equivalent split form
 
 $$
-N = m + 3.
+(\mathbf{K}+\lambda\mathbf{I})\mathbf{w}+\mathbf{P}\mathbf{a}=\mathbf{z},
 $$
 
-The affine tail is
-
 $$
-a_0 + a_1 u + a_2 v.
+\mathbf{P}^{T}\mathbf{w}=\mathbf{0},
 $$
 
-The system matrix is the classical TPS block structure
-
-The local TPS patch solves the standard regularized TPS linear system for the radial weights $\mathbf{w}$ and affine coefficients $\mathbf{a}$, using:
+with
 
 $$
-K_{ij} = \phi\bigl((u_i-u_j)^2 + (v_i-v_j)^2\bigr)
+K_{ij}=\Phi\big((u_i-u_j)^2+(v_i-v_j)^2\big).
 $$
 
-and
+The polynomial design matrix $\mathbf{P}$ has rows
 
 $$
-\mathbf{P} =
-\begin{bmatrix}
-1 & u_1 & v_1 \\
-\vdots & \vdots & \vdots \\
-1 & u_m & v_m
-\end{bmatrix}.
+\mathbf{P}_i = [1\ \ u_i\ \ v_i].
 $$
-
-The system matrix is therefore composed of the regularized kernel block $\mathbf{K} + \lambda \mathbf{I}$, the polynomial block $\mathbf{P}$, and the affine side constraints $\mathbf{P}^{\mathsf T}\mathbf{w} = \mathbf{0}$.
 
 ### 13.6 Patch evaluation
 
-For a query location $(u_q,v_q)$, the local TPS patch evaluates
+At query coordinates $(u_q,v_q)$, the patch value is
 
 $$
-z_q =
-a_0 + a_1 u_q + a_2 v_q +
-\sum_{i=1}^{m} w_i\,
-\phi\!\left((u_i-u_q)^2 + (v_i-v_q)^2\right).
+z_q = a_0 + a_1u_q + a_2v_q + \sum_{i=1}^{m} w_i\,\Phi\big((u_i-u_q)^2+(v_i-v_q)^2\big).
 $$
 
 ### 13.7 Local cross-validation for $\lambda$
 
-Within each candidate local patch, the code tries the regularization set
+For each local patch, the code tests the exact set
 
 $$
 \lambda \in \{10^{-12},10^{-11},10^{-10},10^{-9},10^{-8},10^{-6}\}.
 $$
 
-A subset of local points is reserved for validation whenever the neighborhood is sufficiently large. The selected $\lambda$ is the one minimizing the validation score
-
-$$
-S = \mathrm{RMSE} + 0.35\,P95 + 0.15\,\mathrm{MAE}.
-$$
+Each candidate is scored by predictive residual metrics on a local validation split if available, otherwise by fit residual metrics. The smallest score $S$ wins.
 
 ### 13.8 Blended multi-anchor evaluation
 
-The query point uses up to four nearby anchor patches. For each patch, let $d$ be the anchor-query distance and $r_s$ the support scale. The blending weight is
+The TPS evaluation blends up to four nearby anchor patches. If patch $a$ has support radius $r_{s,a}$, anchor distance $d_a$, and residual estimate $r_a$, the blend weight is
 
 $$
-w_{\mathrm{blend}} =
-\max\!\left(
-\frac{w_c\!\left(\dfrac{d}{r_s}\right)}{10^{-8} + \text{residual}},
-10^{-12}
-\right).
-$$
-
-The final value is
-
-$$
-z =
-\frac{\sum_{a} w_a z_a}{\sum_{a} w_a},
-$$
-
-if at least one patch succeeds. Otherwise the code falls back to IDW.
-
----
-
-## 14. Support mask, hull awareness, and extrapolation control
-
-The code uses a hybrid support-awareness structure:
-
-1. a convex boundary polygon built from the clean point set;
-2. a dilated occupancy mask on a regular support grid.
-
-This is used as an inexpensive practical approximation of a concave support mask.
-
-### 14.1 Occupancy grid spacing
-
-The support-mask cell size is
-
-$$
-c_s = \max(2.5\bar{\Delta}_{xy},\,10^{-6}).
-$$
-
-### 14.2 Support occupancy
-
-For a point $(x,y)$, the support mask stores dilated occupied cells around
-
-$$
-i_x = \left\lfloor \frac{x-x_{\min}}{c_s} \right\rfloor,
-\qquad
-i_y = \left\lfloor \frac{y-y_{\min}}{c_s} \right\rfloor.
-$$
-
-### 14.3 Outside-support distance
-
-If a query point lies outside the support mask / hull proxy, a support distance is computed and converted into a boundary penalty
-
-$$
-\beta =
-\frac{1}{1 + \dfrac{d_{\mathrm{out}}}{L}},
-$$
-
-where $L$ is a characteristic local scale such as grid spacing or spatial-hash cell size.
-
-This penalty enters the local confidence score.
-
----
-
-## 15. Confidence diagnostics and calibration
-
-The code writes a dedicated `confidence.xyz` product. For each grid node it records:
-
-- $x$
-- $y$
-- $z$
-- confidence
-- residual
-- selected $\lambda$ (TPS only; otherwise often zero or nominal)
-- boundary penalty
-- fallback flag
-- outside-hull flag
-- clamped-local flag
-- neighborhood count
-- patch count
-
-The file header is:
-
-```text
-# x y z confidence residual lambda boundaryPenalty fallback outsideHull clampedLocal neighborCount patchCount
-```
-
-### 15.1 Confidence calibration
-
-The raw method confidence is not used directly. It is calibrated against observed validation error using
-
-$$
-C = \max\!\left(0.02,\ \min\!\left(1,\ C_{\mathrm{raw}} \frac{1}{1 + r_{\mathrm{loc}}/s_{\mathrm{obs}}}\right)\right).
+w_a = \max\left(\frac{w_c\big(d_a/(1.001\,r_{s,a}^{xy})\big)}{\sqrt{10^{-8}+r_a}},\ 10^{-12}\right),
 $$
 
 where
 
 $$
-s_{\mathrm{obs}} = \max(\mathrm{RMSE}_{\mathrm{obs}},\ 0.5\,P95_{\mathrm{obs}},\ 10^{-8}).
+r_{s,a}^{xy}=\max\big(1,\ r_{s,a}\max(c_{\mathrm{TPS}},10^{-6})\big).
 $$
 
-This ties the reported confidence to predictive error evidence rather than only internal residual surrogates.
+The blended TPS value is
+
+$$
+z = \frac{\sum_a w_a z_a}{\sum_a w_a}.
+$$
+
+If no valid blend is available, the code falls back first to the best single patch and finally to inverse-distance weighting.
+
+---
+
+## 14. Support mask, hull awareness, and extrapolation control
+
+The structure name `ConvexHull2D` is historical. The implemented algorithm is **not** a mathematical convex hull. It is a raster-occupancy outer-boundary model built from the filtered point cloud.
+
+### 14.1 Occupancy grid spacing
+
+The boundary raster cell size is
+
+$$
+c_s =
+\begin{cases}
+\max(d_{\min},10^{-6}), & \text{if a positive min-distance hint exists},\\
+\max(\bar{\Delta}_{xy},10^{-6}), & \text{otherwise}.
+\end{cases}
+$$
+
+Inside `buildConvexHull2D(...)`, if no explicit request is supplied, the cell size defaults to
+
+$$
+c_s = \max(2.5\bar{\Delta}_{xy},10^{-6}).
+$$
+
+### 14.2 Occupancy support and loop extraction
+
+The filtered points are rasterized into occupied cells. The code then applies morphological closing, fills interior holes, extracts boundary edges, traces loops, and keeps the largest loop by area as the active outer boundary.
+
+When the boundary is built from the runtime pipeline, the cell size is iteratively relaxed by
+
+$$
+c_s \leftarrow 1.35\,c_s
+$$
+
+until all filtered points lie inside the resulting boundary or the iteration budget is exhausted.
+
+### 14.3 Outside-support distance and penalty
+
+For a query point $(x,y)$ outside the active boundary, the code computes the shortest distance to the polygon loop,
+
+$$
+d_{\mathrm{out}} = \operatorname{dist}\big((x,y),\partial\Omega\big).
+$$
+
+The boundary penalty used by bicubic, clamped MLS, and TPS diagnostics is
+
+$$
+\beta = \frac{1}{1 + d_{\mathrm{out}}/L},
+$$
+
+where the active length scale is:
+
+- $L=h$ for bicubic Hermite and clamped MLS;
+- $L=\max(c_{\mathrm{TPS}},10^{-6})$ for TPS.
+
+---
+
+## 15. Confidence diagnostics and calibration
+
+The file `confidence.xyz` writes the fields
+
+```text
+x y z confidence residual lambda boundaryPenalty fallback outsideHull clampedLocal neighborCount patchCount
+```
+
+The interpretation is branch dependent, but the common calibration routine is implemented as follows.
+
+### 15.1 Confidence calibration
+
+If the raw confidence is invalid or non-positive, the code resets it to
+
+$$
+C_{\mathrm{raw}} = 0.05.
+$$
+
+If no observed validation metrics are available, the returned confidence is simply clamped:
+
+$$
+C = \operatorname{clip}(C_{\mathrm{raw}}, 0.05, 1).
+$$
+
+Otherwise the observed error scale is
+
+$$
+s_{\mathrm{obs}} = \max\big(\operatorname{RMSE},\ 0.5P95,\ 10^{-8}\big),
+$$
+
+and the calibrated confidence is
+
+$$
+C = \operatorname{clip}\left(C_{\mathrm{raw}}\frac{1}{1+r_{\mathrm{loc}}/s_{\mathrm{obs}}},\ 0.02, 1\right).
+$$
+
+The raw branch-specific formulas are:
+
+- **Bicubic Hermite:** $C_{\mathrm{raw}} = \frac14(C_{00}+C_{10}+C_{01}+C_{11})\,\beta.$
+- **Local MLS node estimate:** $C_{\mathrm{raw}} = \operatorname{clip}\left(\frac{1}{1+1.5S},\ 0.05,1\right).$
+- **Clamped local MLS stream:** $C_{\mathrm{raw}} = C_{\mathrm{local}}\,\beta.$
+- **TPS stream:** $C_{\mathrm{raw}} = \frac{\beta}{1+4r_{\mathrm{best}}}.$
+
+The residual field written to `confidence.xyz` is the branch-local fit or validation residual estimate. The `lambda` field is active for TPS and zero for the MLS-based branches.
 
 ---
 
 ## 16. Dense linear solver
 
-The code uses a custom dense linear solver based on Gaussian elimination with partial pivoting.
-
-At elimination stage $k$, the pivot row is chosen from
+All local algebra is solved by an internal dense direct solver with partial pivoting. At elimination step $k$, the solver selects the pivot row with largest
 
 $$
-\max_{r \ge k} |a_{rk}|.
+|a_{rk}|.
 $$
 
-If the pivot magnitude is too small or non-finite, the system is rejected.
-
-The elimination multiplier is
+If the pivot magnitude is not finite or does not satisfy
 
 $$
-\gamma_{rk} = \frac{a_{rk}}{a_{kk}}.
+|a_{kk}| > 10^{-18},
 $$
 
-The row update is
+the solve fails safely.
+
+The elimination factor is
 
 $$
-a_{rc} \leftarrow a_{rc} - \gamma_{rk} a_{kc},
+\gamma_{rk} = \frac{a_{rk}}{a_{kk}},
 $$
 
-$$
-b_r \leftarrow b_r - \gamma_{rk} b_k.
-$$
-
-Back substitution recovers
+and the back-substitution stage computes
 
 $$
-x_i =
-\frac{1}{a_{ii}}
-\left(
-b_i - \sum_{c=i+1}^{n-1} a_{ic}x_c
-\right).
+x_i = \frac{1}{a_{ii}}\left(b_i - \sum_{c=i+1}^{n-1} a_{ic}x_c\right).
 $$
 
-This solver is reused by:
-
-- the weighted local plane fit;
-- the robust MLS fit;
-- the local TPS patch solves.
+This internal solver is used by the weighted plane fit, MLS normal equations, and TPS patch systems.
 
 ---
 
@@ -1218,110 +1201,105 @@ This solver is reused by:
 
 ### 17.1 Streamed grid writing
 
-The grid writer traverses the regular grid row-by-row and writes `x y z` records directly to disk. This avoids holding the entire grid product in memory.
+The code writes `grid.xyz` row by row. If outer-boundary usage is enabled, nodes outside the active boundary are skipped rather than written.
 
 ### 17.2 Confidence stream
 
-The confidence writer traverses the same grid and writes, per node,
+The confidence writer streams the same grid node pattern and accumulates the global summary:
 
-$$
-(x,y,z,C,r,\lambda,\beta,\text{flags},N_{\mathrm{nbr}},N_{\mathrm{patch}}).
-$$
-
-It also accumulates a global summary:
-
+- node count;
 - mean confidence;
 - mean residual;
 - fallback count;
-- outside-support count;
+- outside-hull count;
 - clamped-local count.
 
 ### 17.3 DXF viewport geometry
 
-The DXF writer constructs the drawing center as
+The DXF writer computes the viewport center as
 
 $$
 x_c = \frac{x_{\min}+x_{\max}}{2},
 \qquad
-y_c = \frac{y_{\min}+y_{\max}}{2},
+y_c = \frac{y_{\min}+y_{\max}}{2}.
 $$
 
-and the view size as
+The view size is
 
 $$
 V = 1.1\max(x_{\max}-x_{\min},\ y_{\max}-y_{\min}).
 $$
 
-If $V$ is not finite and positive, the fallback is
+If $V$ is invalid or non-positive, the fallback is
 
 $$
-V = 1.
+V=1.
 $$
 
 ### 17.4 DXF layers
 
-The writer creates layers:
+The writer creates the layers:
 
 - `xyz_points`
 - `xyz_labels`
+- `boundary`
 - `grid_points`
-- `grid_labels`
+- `grid_labels` (when a grid is written)
 
-Each retained input point and each grid point can be exported as both `POINT` and `TEXT` entities.
+The DXF therefore contains both point geometry and a practical boundary outline suitable for CAD inspection.
 
 ---
 
 ## 18. Main execution pipeline
 
-The active runtime pipeline in `processXYZtoDXF(...)` consists of six user-visible phases:
+The runtime report produced by the code records the following major stages:
 
-1. deterministic input reading and `minDist` filtering;
-2. robust local residual outlier rejection;
-3. writing `filtered.xyz`;
-4. building the interpolation context;
-5. writing `grid.xyz` and `confidence.xyz`;
-6. writing `dxf`.
+1. read original XYZ input;
+2. robust outlier removal on the original cloud, or explicit notice that it was disabled;
+3. deterministic `minDist` thinning;
+4. boundary construction, or explicit notice that it was disabled;
+5. writing `filtered.xyz`;
+6. interpolation-context construction and streamed writing of `grid.xyz` and `confidence.xyz`;
+7. streamed DXF generation.
 
-The active outlier settings are
-
-$$
-r_n = \max(5 d_{\min}, 0.01),
-\qquad
-\alpha = 3.5.
-$$
-
-The method labels used in the report are:
+The method labels written by the active code are:
 
 - **Bicubic Hermite + robust MLS**
 - **TPS**
 - **Clamped local MLS (bounded)**
 
-The code also reports predictive validation metrics for the selected interpolation branch whenever available.
+For the bicubic branch, the report also records the selected tuning tuple
+
+$$
+(\texttt{neighbors},\ \texttt{supportMultiplier},\ \texttt{ridgeFactor},\ \texttt{basisOrder}).
+$$
 
 ---
 
 ## 19. GUI architecture
 
-The Win32 GUI is organized into four grouped panels:
+The Win32 interface is organized into four group boxes:
 
 1. **Source File**
 2. **Processing Parameters**
 3. **Interpolation Method**
 4. **Execution**
 
-The window is fixed-size and non-resizable. The GUI uses `Segoe UI` fonts, dedicated group boxes, a file-browse button, parameter edit boxes, method radio buttons, a prominent `Run Conversion` button, and a status box that is updated asynchronously by the worker thread.
+The window is fixed-size and non-resizable. The active logical creation size is approximately
 
-The method descriptions are deliberately textual because the interpolation branches have materially different numerical philosophies:
+$$
+950 \times 670
+$$
 
-- smooth Hermite surface reconstruction from robust local nodal derivatives;
-- locally adaptive radial-basis patching for scattered data;
-- bounded local MLS for conservative overshoot control.
+window units before `AdjustWindowRect(...)` expands it to the full outer window size.
+
+The GUI uses `Segoe UI` fonts, a file-browse button, edit boxes for the scalar parameters, method radio buttons, two checkboxes for preprocessing/domain options, a `Run Conversion` button, and a status box updated through a joinable worker thread.
 
 ---
 
 ## 20. Output products
 
-The program writes the following files:
+The current code writes the following files:
 
 1. `input.xyz.filtered.xyz`
 2. `input.xyz.grid.xyz`
@@ -1331,23 +1309,23 @@ The program writes the following files:
 
 ### 20.1 `filtered.xyz`
 
-Contains the deterministically thinned and robustly de-outliered point cloud.
+Contains the optional outlier-filtered and deterministically thinned working cloud used as interpolation support.
 
 ### 20.2 `grid.xyz`
 
-Contains the final interpolated regular grid.
+Contains the final interpolated regular-grid nodes written inside the active boundary, if boundary clipping is enabled.
 
 ### 20.3 `confidence.xyz`
 
-Contains the interpolated grid plus local diagnostics.
+Contains the interpolated nodes plus confidence, residual, lambda, boundary penalty, fallback flag, outside-hull flag, clamped-local flag, neighborhood count, and patch count.
 
 ### 20.4 `dxf`
 
-Contains DXF entities for filtered points and optionally grid points.
+Contains DXF point and label entities for the filtered XYZ cloud, optional grid entities, and the active boundary polyline.
 
 ### 20.5 `rpt.txt`
 
-Contains a textual report/log of the run, including method label, selected tuning, validation metrics, confidence summary, and phase progress messages.
+Contains the textual execution report with phase messages, validation summaries, tuning information, and confidence summary.
 
 ---
 
@@ -1358,69 +1336,57 @@ Contains a textual report/log of the run, including method label, selected tunin
 Recommended when:
 
 - a smooth regular surface is desired;
-- local derivative quality matters;
-- the surface is reasonably continuous;
-- a structured grid product is the primary target.
+- derivative continuity matters;
+- the cloud is sufficiently sampled for stable local polynomial recovery;
+- a general-purpose engineering grid is the primary target.
 
-### 21.2 Local TPS
+### 21.2 TPS
 
 Recommended when:
 
-- the point cloud is strongly scattered;
-- point spacing is irregular;
-- local radial-basis flexibility is more important than direct derivative control.
+- the point cloud is strongly scattered or geometrically irregular;
+- local patch flexibility is more important than direct derivative control;
+- a local radial-basis reconstruction is preferable to a cellwise Hermite surface.
 
 ### 21.3 Clamped local MLS (bounded)
 
 Recommended when:
 
-- overshoot control is more important than maximal smoothness;
-- local values must remain inside the neighborhood data envelope;
-- a conservative interpolated surface is preferred.
+- overshoot suppression is more important than maximal smoothness;
+- values should remain close to the nearby observed envelope;
+- a conservative engineering surface is preferred.
 
 ---
 
 ## 22. Numerical safeguards and failure philosophy
 
-The code is designed to **fail safely** rather than silently return unstable algebraic results. The following protections are implemented:
+The code is explicitly written to fail conservatively rather than silently produce unstable algebraic output. The principal safeguards are:
 
-- dense solves reject nearly singular pivots;
-- MLS and TPS local fits check finiteness;
-- insufficient neighborhoods trigger conservative fallback;
-- boundary penalties reduce confidence outside support;
-- derivative limiters suppress excessive Hermite oscillation;
-- output streams are written incrementally with explicit error checks;
-- allocation failures are caught and reported.
+- pivot thresholding in all dense solves;
+- finite-value checks after local solves;
+- inverse-distance fallback when local polynomial or TPS evaluation fails;
+- explicit fallback flags in the diagnostics stream;
+- derivative limiting in the bicubic branch;
+- boundary penalties and outside-hull diagnostics;
+- allocation failure handling with safe abort and report output.
 
-The overall philosophy is therefore **robustness first, smoothness second, and silent numerical optimism never**.
+The implementation philosophy is therefore **robustness first, smoothness second, and silent numerical optimism never**.
 
 ---
 
 ## 23. Limitations and intended use
 
-This software is a strong engineering interpolator and exporter, but it remains a deterministic local-surface tool rather than a universal geostatistical model. In particular:
+This program is a strong engineering interpolator and exporter, but it is not a full geostatistical or feature-aware terrain-modelling framework. In particular:
 
-- it does not estimate kriging variance;
-- it does not explicitly detect semantic breaklines;
-- its support mask is a practical hull/occupancy surrogate, not a full computational-geometry alpha-shape library;
-- the clamped MLS mode is bounded, but it is not a formal TVD finite-volume scheme.
+- it does not compute kriging variance;
+- it does not infer semantic breaklines or discontinuities;
+- its boundary object is a practical raster-derived support mask, not an exact alpha-shape or constrained triangulation engine;
+- the bounded MLS mode is a conservative clamp, not a formal monotonicity-preserving PDE scheme.
 
-Within these limits, the code is nevertheless highly suitable for technical surface reconstruction from engineering XYZ clouds.
+Within those limits, the code is well suited to technical surface reconstruction from large engineering XYZ clouds.
 
 ---
 
 ## 24. Summary
 
-The active code base implements a complete and scientifically defensible workflow for transforming irregular XYZ point clouds into quality-controlled regular grids and DXF visualization products. Its principal scientific ingredients are:
-
-- deterministic minimum-distance thinning;
-- robust local residual-based outlier rejection;
-- anisotropic local-coordinate construction;
-- robust MLS with predictive validation;
-- bicubic Hermite cell reconstruction with derivative limiting;
-- local TPS patches with cross-validated regularization;
-- bounded local MLS as a conservative alternative;
-- support-aware confidence diagnostics;
-- streamed engineering outputs.
-
-The software is therefore best understood as a **numerically robust surface reconstruction and export framework**, rather than a simple format converter.
+The active `xyz2dxf_gui.cpp` implementation performs a numerically explicit workflow consisting of robust original-cloud screening, deterministic horizontal thinning, optional raster-derived outer-boundary construction, method-specific interpolation, diagnostic confidence estimation, and streamed CAD/text export. The README presented here is aligned with the current code path, current GUI controls, current tuning sets, and current formulas implemented in the MLS, bicubic Hermite, TPS, confidence, boundary, and DXF branches.
